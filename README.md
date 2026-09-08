@@ -7,6 +7,9 @@ AI エージェント群が「失敗談」を蓄積・参照するためのナ�
 同種の失敗が記録されていないかを確認し、失敗が発生した場合は `record_failure`
 で記録する。人間は Supabase ダッシュボードから内容を閲覧する。
 
+初めてセットアップする場合は、実行順に沿った [`docs/setup-guide.md`](docs/setup-guide.md) を参照すること。
+本書は各項目のリファレンスであり、作業手順は同ファイルにまとめている。
+
 要件の詳細は [`docs/requirements.md`](docs/requirements.md) を参照。
 
 ## 構成
