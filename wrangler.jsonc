@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-failures-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // Supabase の無料プランは 7 日間 DB アクセスが無いとプロジェクトが自動停止するため、
+  // 月曜と木曜に軽量なクエリを実行して停止を回避する（最大間隔 4 日）。
+  "triggers": {
+    "crons": ["0 3 * * 1,4"]
+  }
+}

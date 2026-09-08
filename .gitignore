@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+
+# シークレットを含むため、以下はコミットしない
+.env
+.dev.vars
+.dev.vars.*
+!.env.example
+
+*.log
+.DS_Store
