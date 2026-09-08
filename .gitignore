@@ -10,3 +10,10 @@ dist/
 
 *.log
 .DS_Store
+
+# auto-review hook の出力（docs/review-checklist.md 自体は追跡する）
+docs/review-log/
+.claude/hooks/.review-state.json
+.claude/hooks/review-ledger.csv
+# 自動レビューのキルスイッチ
+.claude/hooks/.review-off
