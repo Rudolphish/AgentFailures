@@ -1,1 +1,2 @@
 date,topic,decision,evidence
+2026-09-08,未認証の経路が不足している環境変数名を列挙して返す,accepted,"指摘を受けてコミット 97fff77 で修正。未設定状態の wrangler dev に未認証で叩き、修正前は変数名が列挙され、修正後は /health が {""status"":""misconfigured""}、/mcp が {""error"":""Server misconfigured""} のみを返すことを実測。修正コミット 97fff77 は自動レビューで PASS 判定を得ており（docs/review-log/2026-09-08T04-08-04-800Z.md）、開発側の自己申告のみに依拠した記録ではない"
