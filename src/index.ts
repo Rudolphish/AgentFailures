@@ -23,8 +23,13 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
   });
 }
 
-function rpcError(code: number, message: string, status: number, id: unknown = null): Response {
-  return json({ jsonrpc: '2.0', id, error: { code, message } }, status);
+function rpcError(
+  code: number,
+  message: string,
+  status: number,
+  headers: Record<string, string> = {},
+): Response {
+  return json({ jsonrpc: '2.0', id: null, error: { code, message } }, status, headers);
 }
 
 async function handleMcpPost(request: Request, env: Env): Promise<Response> {
@@ -76,22 +81,23 @@ async function handleMcpPost(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleFetch(request: Request, env: Env): Promise<Response> {
-  const missing = missingEnvKeys(env);
-  if (missing.length > 0) {
-    return json(
-      { error: `サーバー設定が不足しています: ${missing.join(', ')}` },
-      500,
-    );
-  }
-
   const url = new URL(request.url);
+  const missing = missingEnvKeys(env);
 
-  // 疎通確認用。認証は不要だが、サーバーの状態以外は返さない。
+  // 疎通確認用。認証を要さないエンドポイントであるため、設定の詳細
+  // （どの環境変数が不足しているか）は返さず、状態のみを返す。
   if (url.pathname === '/health') {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return json({ error: 'Method Not Allowed' }, 405, { allow: 'GET, HEAD' });
     }
-    return json({ status: 'ok' });
+    return json({ status: missing.length > 0 ? 'misconfigured' : 'ok' });
+  }
+
+  if (missing.length > 0) {
+    // 不足している変数名はサーバーのログにのみ残す。
+    // 未認証の相手に返すと、どのシークレットが未設定かを外部へ教えることになる。
+    console.error(`サーバー設定が不足しています: ${missing.join(', ')}`);
+    return json({ error: 'Server misconfigured' }, 500);
   }
 
   if (url.pathname !== MCP_PATH) {
@@ -111,8 +117,13 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
       return new Response(null, { status: 204 });
 
     default:
-      // サーバー起点の SSE ストリームは提供しない。
-      return rpcError(INVALID_REQUEST, 'このエンドポイントは POST のみを受け付けます。', 405);
+      // サーバー起点の SSE ストリームは提供しないため GET は受け付けない。
+      return rpcError(
+        INVALID_REQUEST,
+        'このエンドポイントが受け付けるのは POST と DELETE のみです。',
+        405,
+        { allow: 'POST, DELETE' },
+      );
   }
 }
 
