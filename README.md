@@ -274,6 +274,66 @@ Supabase の無料プランは、7 日間データベースへのアクセスが
 語の切れ目に依存せず一致するが、表記ゆれ（全角・半角、送り仮名など）は
 吸収しない。安定した検索を行うには `tags` を活用すること。
 
+## 自動レビュー
+
+Claude Code の Stop フックで、そのセッションの変更を自動レビューする仕組みを
+同梱している。レビュー担当として `claude -p` を別プロセスで起動し、
+[`docs/review-checklist.md`](docs/review-checklist.md) の観点で差分を確認する。
+
+判定が `VERDICT: FAIL` の場合、フックは exit code 2 で Stop をブロックし、
+指摘を開発側へ差し戻して修正させる。修正後に再度 Stop が発火して再レビューが走る。
+
+### 有効化
+
+フック定義を含む `.claude/settings.json` はリポジトリに含めていない。
+内容を確認したうえで、以下のコマンドで設置すること。
+
+```bash
+cp docs/claude-settings.example.json .claude/settings.json
+```
+
+このファイルは Claude Code に任意のコマンドを実行させる設定であるため、
+設置前に必ず中身を読むこと。
+
+### 構成
+
+| ファイル | 役割 |
+| --- | --- |
+| `.claude/hooks/auto-review.mjs` | レビュー本体。SessionStart で起点を記録し、Stop でレビューする |
+| `.claude/hooks/review-status.mjs` | いまのコミットがレビュー済みかを確認する |
+| `.claude/hooks/session-brief.mjs` | セッション冒頭に `docs/lessons.md` と未レビュー分を出す |
+| `.claude/hooks/review-decisions.csv` | 決着済みの論点。レビュアーが同じ指摘を蒸し返さないための記録 |
+| `docs/review-checklist.md` | レビュー観点 |
+| `docs/review-log/` | レビュー結果（gitignore 対象、最新 20 件まで保持） |
+| `.claude/hooks/review-ledger.csv` | レビュー台帳（gitignore 対象） |
+
+### 手動での実行
+
+```bash
+# 特定のコミット、または範囲をレビューする
+node .claude/hooks/auto-review.mjs --range <sha>
+node .claude/hooks/auto-review.mjs --range <from>..<to>
+
+# いまのブランチのレビュー状況を確認する（マージ前の確認用）
+node .claude/hooks/review-status.mjs --range
+```
+
+### 止め方
+
+```bash
+touch .claude/hooks/.review-off
+```
+
+このファイルがある間、自動レビューは何もせず終了する。削除すれば元に戻る。
+`--range` による手動実行はこのファイルの影響を受けない。
+
+### 注意
+
+- レビューのたびに `claude -p` を起動するため、実行のたびに利用量を消費する。
+- 無限ループ防止として、同一差分での連続 FAIL は 3 回、1 セッションの通算実行は
+  6 回、連続 FAIL は 3 回で打ち切る。打ち切られた場合は
+  `docs/review-log/` の最新ログを確認すること。
+
 ## 本フェーズのスコープ外
 
 以下は将来的な拡張候補であり、実装していない。
