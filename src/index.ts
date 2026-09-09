@@ -128,8 +128,17 @@ async function handleFetch(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  fetch(request, env) {
-    return handleFetch(request, env);
+  // ランタイムはハンドラの戻り値が Promise であることを要求する。
+  // async として宣言し、await して返すことで、必ずネイティブの Promise を返す。
+  async fetch(request, env): Promise<Response> {
+    try {
+      return await handleFetch(request, env);
+    } catch (error) {
+      // 例外を捕捉しない場合、Cloudflare は診断情報の無い 1101 のエラーページを返す。
+      // 内容はサーバーのログにのみ残し、クライアントへは汎用の応答を返す。
+      console.error('未捕捉の例外が発生しました:', error);
+      return json({ error: 'Internal Server Error' }, 500);
+    }
   },
 
   /**
