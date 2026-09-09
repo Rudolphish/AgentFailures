@@ -286,6 +286,13 @@ PowerShell を用いる場合は、本手順のコマンドをすべて読み替
 [付録](#付録-windows-powershell-での実行) に手順 4-1 から 4-4 までの
 PowerShell 版を記載しているため、そちらを参照すること。
 
+> **注意**: 本手順のコマンドをスクリプトファイルへ保存して実行する場合、
+> そのファイルへトークンを直接記述しないこと。リポジトリ内に置いたまま
+> コミットすると、公開リポジトリであれば誰でも MCP サーバーへ到達できる。
+> `script.ps1` / `script.sh` / `scratch-*` は `.gitignore` の対象としているが、
+> 依存せずにトークンは環境変数から読むこと。
+> 永続的に設定する方法は[付録](#環境変数の永続化)に記載している。
+
 ### 4-1. 認証の確認
 
 トークンを付けずに要求し、拒否されることを確認する。
@@ -502,14 +509,32 @@ $bytes = New-Object byte[] 48
 
 `Get-Random` は暗号用途を想定した実装ではないため、この用途には用いないこと。
 
-### 疎通確認（手順 4）
+### 環境変数の永続化
 
-環境変数の設定は以下のとおり記述する。
+以下は現在の PowerShell の画面でのみ有効であり、別の画面を開くと失われる。
 
 ```powershell
 $env:MCP_URL = "https://agent-failures-mcp.<サブドメイン>.workers.dev"
 $env:MCP_AUTH_TOKEN = "<手順 3-3 で生成した値>"
 ```
+
+利用者の環境変数として永続的に保存する場合は以下を用いる。
+一度実行すれば、以降に開いた PowerShell では `$env:MCP_AUTH_TOKEN` を
+そのまま参照できる。スクリプトへトークンを直接記述せずに済むため、
+こちらを推奨する。
+
+```powershell
+[Environment]::SetEnvironmentVariable("MCP_URL", "https://agent-failures-mcp.<サブドメイン>.workers.dev", "User")
+[Environment]::SetEnvironmentVariable("MCP_AUTH_TOKEN", "<手順 3-3 で生成した値>", "User")
+```
+
+設定後、PowerShell を開き直してから以下で確認する。
+
+```powershell
+$env:MCP_AUTH_TOKEN.Length
+```
+
+### 疎通確認（手順 4）
 
 JSON を引数として渡す際の引用符の扱いはシェルによって差異があるため、
 PowerShell では `curl.exe` ではなく `Invoke-RestMethod` を用いる方が確実である。

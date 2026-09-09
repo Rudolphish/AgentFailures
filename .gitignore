@@ -17,3 +17,10 @@ docs/review-log/
 .claude/hooks/review-ledger.csv
 # 自動レビューのキルスイッチ
 .claude/hooks/.review-off
+
+# 動作確認用の作業スクリプト。トークン等を直書きしやすいため除外する
+/script.ps1
+/script.sh
+/scratch-*
+*.local.ps1
+*.local.sh
