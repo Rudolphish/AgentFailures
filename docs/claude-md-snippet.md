@@ -4,9 +4,10 @@
 先に当該環境で MCP サーバーへ接続しておくこと（[`../README.md`](../README.md) の
 「MCP クライアントの設定」を参照）。
 
-`domain` の一覧は運用に合わせて書き換えること。**この行が最も重要である。**
-`domain` は完全一致で検索するため、`app-dev` と `appdev` のような表記の揺れが
-生じると絞り込みが機能しなくなる。
+`domain` と `tags` の使い分けは [`taxonomy.md`](./taxonomy.md) に定めている。
+`domain` は完全一致で検索するため、表記が揺れると絞り込みが機能しなくなる。
+語彙の正本は [`../src/schema.ts`](../src/schema.ts) の `KNOWN_DOMAINS` にあり、
+ツールの説明文を通じて記録するエージェントへ伝わる。下記の断片はその補強である。
 
 ---
 
@@ -22,8 +23,13 @@ MCP サーバー `agent-failures` が利用できる。過去に踏んだ失敗�
 - `observed` には観測された事実（エラーメッセージ、終了コード等）のみを書く。
   解釈や推測は `cause` に書き、確認が取れていない場合は
   `cause_is_assumption` を `true` にする。
-- `domain` は既存の値と揃える。現在使用しているもの:
-  `app-dev` / `cloudflare-workers` / `windows-powershell`
+- `domain` には**技術**を入れる。現在の語彙は
+  `nextjs` / `cloudflare-workers` / `supabase` / `github-actions` /
+  `claude-code` / `windows-powershell` / `discord-api`。
+  `notification-design` のような話題の名称は使わない。
+- `tags` には (1) 失敗の性質（`silent-failure` / `security` / `data-loss` /
+  `encoding` / `quota` など）を最低1つ、(2) 話題や設計パターン、
+  (3) `domain` 以外の関連技術、を入れる。
 ```
 
 ---

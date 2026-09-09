@@ -276,9 +276,11 @@ claude mcp add --transport http agent-failures \
 毎回適用される。貼り付ける文面は
 [`docs/claude-md-snippet.md`](docs/claude-md-snippet.md) に用意している。
 
-記載する内容のうち、**`domain` の一覧を明示することが最も重要である。**
-`domain` は完全一致で検索するため、`app-dev` と `appdev` のような表記の揺れが
-生じると絞り込みが機能しなくなる。使用する語彙を決めて記載しておくこと。
+`domain` と `tags` の使い分けは [`docs/taxonomy.md`](docs/taxonomy.md) に定めている。
+`domain` には技術（`nextjs` / `cloudflare-workers` など）を、`tags` には失敗の性質や
+話題を入れる。語彙の正本は `src/schema.ts` の `KNOWN_DOMAINS` にあり、
+ツールの説明文を通じて記録するエージェントへ伝わるため、
+クライアント側の設定だけに依存しない。
 
 ### カスタム指示に記載する（デスクトップ / スマートフォン）
 
