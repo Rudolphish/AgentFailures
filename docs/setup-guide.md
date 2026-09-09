@@ -208,6 +208,12 @@ npx wrangler deploy
 curl -sS https://agent-failures-mcp.<サブドメイン>.workers.dev/health
 ```
 
+> **PowerShell の場合**: `curl` は `Invoke-WebRequest` の別名として定義されている
+> ことがあり、そのままでは `パラメーター名 'sS' に一致するパラメーターが
+> 見つかりません` というエラーになる。`curl.exe` と拡張子まで記述するか、
+> `Invoke-RestMethod <URL>` を用いること。
+> 詳細は[付録](#付録-windows-powershell-での実行)に記載している。
+
 上記が `{"status":"misconfigured"}` を返すことを確認する。
 
 ### 3-3. 認証トークンの生成
@@ -258,6 +264,9 @@ npx wrangler secret list
 ```bash
 curl -sS https://agent-failures-mcp.<サブドメイン>.workers.dev/health
 ```
+
+PowerShell の場合は `curl.exe -sS <URL>/health` または
+`Invoke-RestMethod <URL>/health` とする。
 
 **完了の判定**: `{"status":"ok"}` が返ること。
 シークレットの登録は即時に反映されるため、再デプロイは不要である。
