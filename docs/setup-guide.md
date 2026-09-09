@@ -396,6 +396,24 @@ claude mcp add --transport http agent-failures \
 `npx wrangler secret list` で 3 件すべてが登録されているかを確認する。
 名称の綴りが 1 文字でも異なると未設定として扱われる。
 
+### `error code: 1101` が返る
+
+Worker が実行時に例外を投げている。まずログを確認する。
+
+```powershell
+npx wrangler tail
+```
+
+上記を実行したまま、別の端末からリクエストを送ると、例外の内容が表示される。
+
+デプロイしたコードが最新でない可能性もあるため、次を実行してから
+再度確認すること。
+
+```powershell
+git pull origin main
+npx wrangler deploy
+```
+
 ### 手順 4-3 で「失敗談の登録に失敗しました」が返る
 
 Worker から Supabase への接続で問題が生じている。次の順に確認する。

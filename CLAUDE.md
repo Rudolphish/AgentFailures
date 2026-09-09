@@ -38,6 +38,21 @@ SSE なし、セッションなし）を使うこと。SDK の `Server` コア�
 終わったら `close` する。`initialize` を受けたインスタンスは次のリクエストには
 残らない。セッション ID は発行しない。
 
+### fetch ハンドラは async として宣言する
+
+`export default` のハンドラは、必ず `async fetch(...)` と宣言し、
+`return await ...` の形で返すこと。
+
+Promise を返す非 async のメソッドとして書いた場合、ローカルの `wrangler dev` では
+正常に動作するが、**デプロイ先では**リクエストのたびに
+`TypeError: Callback returned incorrect type; expected 'Promise'` が発生し、
+Cloudflare の error 1101 となる。
+
+あわせて、ハンドラ全体を try/catch で囲むこと。例外を捕捉しない場合、
+Cloudflare が返すのは 1101 のエラーページのみで、原因を示す情報が
+ログにも応答にも一切残らない。捕捉して `console.error` へ出せば
+`wrangler tail` で内容を確認できる。
+
 ### 生成列から呼ぶ関数は immutable でなければならない
 
 `concat_ws` と `array_to_string` は型出力関数を経由する都合で PostgreSQL 上
