@@ -372,6 +372,12 @@ claude mcp add --transport http agent-failures \
   --header "Authorization: Bearer $MCP_AUTH_TOKEN"
 ```
 
+設定は既定のスコープ（`local`）で `~/.claude.json` へ保存され、
+リポジトリには含まれない。
+
+> **注意**: `--scope project` を指定しないこと。指定するとリポジトリ直下に
+> `.mcp.json` が作成され、トークンを含んだままコミットされる恐れがある。
+
 ### 設定ファイルで指定する場合
 
 ```json
