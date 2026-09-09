@@ -539,6 +539,13 @@ $env:MCP_AUTH_TOKEN.Length
 JSON を引数として渡す際の引用符の扱いはシェルによって差異があるため、
 PowerShell では `curl.exe` ではなく `Invoke-RestMethod` を用いる方が確実である。
 
+> **重要**: 本文の JSON を `-Body` へ**文字列のまま**渡してはならない。
+> Windows PowerShell 5.1 の `Invoke-RestMethod` は、文字列の本文を UTF-8 以外の
+> エンコーディングで送信する。その結果、日本語を含む値は文字化けした状態で
+> データベースへ保存される（要求自体は成功するため、応答を見るまで気づけない）。
+> 以下のとおり `[System.Text.Encoding]::UTF8.GetBytes()` でバイト列へ変換して
+> 渡すこと。バイト列を渡した場合、PowerShell による再変換は行われない。
+
 **手順 4-1（認証の確認、401 が返ること）**
 
 ```powershell
@@ -553,8 +560,10 @@ curl.exe -sS -o NUL -w "%{http_code}`n" -X POST "$env:MCP_URL/mcp" `
 $headers = @{ Authorization = "Bearer $env:MCP_AUTH_TOKEN" }
 $body = @{ jsonrpc = "2.0"; id = 1; method = "tools/list" } | ConvertTo-Json
 
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+
 Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
-  -Headers $headers -ContentType "application/json" -Body $body |
+  -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bytes |
   ConvertTo-Json -Depth 8
 ```
 
@@ -578,8 +587,10 @@ $body = @{
   }
 } | ConvertTo-Json -Depth 6
 
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+
 Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
-  -Headers $headers -ContentType "application/json" -Body $body |
+  -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bytes |
   ConvertTo-Json -Depth 8
 ```
 
@@ -600,8 +611,10 @@ $body = @{
   }
 } | ConvertTo-Json -Depth 6
 
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+
 Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
-  -Headers $headers -ContentType "application/json" -Body $body |
+  -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bytes |
   ConvertTo-Json -Depth 8
 ```
 
