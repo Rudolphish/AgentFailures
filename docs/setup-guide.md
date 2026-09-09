@@ -9,6 +9,12 @@
 なお、リファレンスとしての各項目の説明は [`README.md`](../README.md) にある。
 本書は実行順序に沿った作業指示のみを扱う。
 
+> **Windows で作業する場合**: 本文中のコマンドは Unix 系シェル（bash / zsh）を
+> 前提としている。Git for Windows に同梱される **Git Bash** を用いれば、
+> 記載のコマンドがそのまま実行できる。
+> PowerShell を用いる場合は、一部のコマンドが動作しないため
+> [付録](#付録-windows-powershell-での実行) の読み替えを参照すること。
+
 ## 全体像
 
 | 手順 | 内容 | 前提 |
@@ -209,9 +215,18 @@ curl -sS https://agent-failures-mcp.<サブドメイン>.workers.dev/health
 MCP サーバーへのアクセスを制限するためのトークンを生成する。
 これは Supabase とは無関係であり、自身で決める値である。
 
+Node.js は手順 0 の前提に含まれているため、以下のコマンドが
+OS を問わずそのまま利用できる。
+
 ```bash
-openssl rand -base64 48
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ```
+
+48 バイトの暗号論的乱数を base64 で表現した、64 文字の文字列が出力される。
+
+> **補足**: `openssl rand -base64 48` でも同等の値が得られるが、
+> Windows には既定で `openssl` が入っていない。上記の Node.js を用いる方法か、
+> [付録](#付録-windows-powershell-での実行) の PowerShell による方法を用いること。
 
 出力された文字列を控える。手順 5 で MCP クライアントの設定にも使用するため、
 パスワード管理ツールへ保管すること。
@@ -257,6 +272,10 @@ curl -sS https://agent-failures-mcp.<サブドメイン>.workers.dev/health
 export MCP_URL=https://agent-failures-mcp.<サブドメイン>.workers.dev
 export MCP_AUTH_TOKEN=<手順 3-3 で生成した値>
 ```
+
+PowerShell を用いる場合は、本手順のコマンドをすべて読み替える必要がある。
+[付録](#付録-windows-powershell-での実行) に手順 4-1 から 4-4 までの
+PowerShell 版を記載しているため、そちらを参照すること。
 
 ### 4-1. 認証の確認
 
@@ -402,7 +421,143 @@ Supabase の無料プランは、7 日間データベースへのアクセスが
 touch .claude/hooks/.review-off
 ```
 
+PowerShell の場合は `New-Item .claude/hooks/.review-off -ItemType File` とする。
+
 削除すれば元に戻る。
+
+---
+
+## 付録: Windows (PowerShell) での実行
+
+本文のコマンドは Unix 系シェルを前提としている。PowerShell で作業する場合、
+以下の読み替えが必要となる。
+
+Git for Windows に同梱される **Git Bash** を用いれば読み替えは不要であり、
+本文のコマンドをそのまま実行できる。判断に迷う場合は Git Bash を推奨する。
+
+### 読み替え一覧
+
+| 本文の記述 | PowerShell での記述 | 備考 |
+| --- | --- | --- |
+| `openssl rand -base64 48` | 下記「トークンの生成」を参照 | `openssl` は既定で存在しない |
+| `curl` | `curl.exe` | 下記「curl の注意点」を参照 |
+| `export NAME=value` | `$env:NAME = "value"` | |
+| 行末の `\`（行継続） | 行末の `` ` ``（バッククォート） | |
+| `touch <ファイル>` | `New-Item <ファイル> -ItemType File` | |
+| `cp` / `cat` | そのまま利用可 | `Copy-Item` / `Get-Content` の別名 |
+
+### curl の注意点
+
+Windows PowerShell 5.1 では、`curl` は `Invoke-WebRequest` の別名として
+定義されている。引数の体系が異なるため、本文のコマンドをそのまま実行すると
+エラーとなる。**必ず `curl.exe` と拡張子まで記述すること。**
+
+なお PowerShell 7 では当該の別名は廃止されており、`curl` は
+Windows 標準の `curl.exe` を指す。バージョンによる差異を避けるため、
+いずれの場合も `curl.exe` と記述することを推奨する。
+
+### トークンの生成（手順 3-3）
+
+Node.js を用いる方法が最も確実であり、本文に記載のとおり
+OS を問わず同じコマンドで動作する。
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+```
+
+PowerShell のみで完結させる場合は以下を用いる。
+
+```powershell
+$bytes = New-Object byte[] 48
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+`Get-Random` は暗号用途を想定した実装ではないため、この用途には用いないこと。
+
+### 疎通確認（手順 4）
+
+環境変数の設定は以下のとおり記述する。
+
+```powershell
+$env:MCP_URL = "https://agent-failures-mcp.<サブドメイン>.workers.dev"
+$env:MCP_AUTH_TOKEN = "<手順 3-3 で生成した値>"
+```
+
+JSON を引数として渡す際の引用符の扱いはシェルによって差異があるため、
+PowerShell では `curl.exe` ではなく `Invoke-RestMethod` を用いる方が確実である。
+
+**手順 4-1（認証の確認、401 が返ること）**
+
+```powershell
+curl.exe -sS -o NUL -w "%{http_code}`n" -X POST "$env:MCP_URL/mcp" `
+  -H "Content-Type: application/json" `
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
+```
+
+**手順 4-2（ツール一覧の取得）**
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:MCP_AUTH_TOKEN" }
+$body = @{ jsonrpc = "2.0"; id = 1; method = "tools/list" } | ConvertTo-Json
+
+Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
+  -Headers $headers -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 8
+```
+
+**手順 4-3（登録の確認）**
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:MCP_AUTH_TOKEN" }
+$body = @{
+  jsonrpc = "2.0"; id = 2; method = "tools/call"
+  params  = @{
+    name      = "record_failure"
+    arguments = @{
+      domain              = "setup"
+      environment         = "Cloudflare Workers / Supabase"
+      attempted           = "疎通確認のため、失敗談を1件登録した"
+      observed            = "登録に成功した"
+      cause               = "疎通確認のためのダミーデータである"
+      cause_is_assumption = $false
+      tags                = @("setup", "dummy")
+    }
+  }
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
+  -Headers $headers -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 8
+```
+
+> **注意**: `ConvertTo-Json` の既定の変換深度は 2 である。
+> `params` の下に `arguments` が入れ子になっているため、`-Depth` を
+> 指定しないと内側が `System.Collections.Hashtable` という文字列へ
+> 変換されて送信される。
+
+**手順 4-4（検索の確認）**
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:MCP_AUTH_TOKEN" }
+$body = @{
+  jsonrpc = "2.0"; id = 3; method = "tools/call"
+  params  = @{
+    name      = "search_failures"
+    arguments = @{ query = "疎通確認"; limit = 3 }
+  }
+} | ConvertTo-Json -Depth 6
+
+Invoke-RestMethod -Uri "$env:MCP_URL/mcp" -Method Post `
+  -Headers $headers -ContentType "application/json" -Body $body |
+  ConvertTo-Json -Depth 8
+```
+
+### 自動レビューの停止（トラブルシューティング）
+
+```powershell
+New-Item .claude/hooks/.review-off -ItemType File
+```
 
 ---
 
@@ -411,6 +566,6 @@ touch .claude/hooks/.review-off
 - `.env` および `.dev.vars` は `.gitignore` の対象である。この設定を変更しない。
 - `SUPABASE_SERVICE_ROLE_KEY` と `MCP_AUTH_TOKEN` を、
   課題管理システム・チャット・コミットメッセージへ貼り付けない。
-- トークンの漏洩が疑われる場合は、`openssl rand -base64 48` で新しい値を生成し、
+- トークンの漏洩が疑われる場合は、手順 3-3 と同じ方法で新しい値を生成し、
   `npx wrangler secret put MCP_AUTH_TOKEN` で上書きしたうえで、
   クライアント側の設定も差し替える。上書きにより旧トークンは即座に無効となる。
