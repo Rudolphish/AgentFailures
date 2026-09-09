@@ -73,7 +73,14 @@
 - [ ] 要件でスコープ外とした機能（Notion 連携 / ベクトル検索・pgvector /
       自動分類・審査エージェント・削除機構 / 管理用 UI）を先回りして実装していないか
 
-## 7. 一般的なコード品質
+## 7. レビュー機構自体
+
+- [ ] `.claude/hooks/review-decisions.csv` に開発側が `rejected` / `deferred` を
+      書き足していないか（開発側が書けるのは `accepted` のみ。詳細は
+      [`CLAUDE.md`](../CLAUDE.md) の「review-decisions.csv へ書いてよいもの」）
+- [ ] `accepted` の evidence に、修正コミットと独立した PASS の根拠が書かれているか
+
+## 8. 一般的なコード品質
 
 - [ ] TypeScript の型エラーがないか（`npm run typecheck`）
 - [ ] 明らかなデッドコード・デバッグ用 `console.log` の残置がないか

@@ -1,8 +1,24 @@
 import type { FailureRecord } from './schema.js';
 
+/** 見出しに載せる attempted の長さ。全文は本文の attempted 行で読める。 */
+const HEADING_MAX_CHARS = 40;
+
+/**
+ * 見出し用に一行へ畳んで切り詰める。
+ * attempted は改行を含みうるため、置換しないと見出しが本文へ食い込む。
+ */
+function toHeadingText(text: string): string {
+  const oneLine = text.replace(/\s+/gu, ' ').trim();
+  // 文字数で数える。バイト数で切ると日本語が途中で分断される。
+  const chars = [...oneLine];
+  return chars.length > HEADING_MAX_CHARS
+    ? `${chars.slice(0, HEADING_MAX_CHARS).join('')}…`
+    : oneLine;
+}
+
 function renderRecord(record: FailureRecord, index: number): string {
   const lines = [
-    `## ${index + 1}. [${record.domain}] ${record.attempted}`,
+    `## ${index + 1}. [${record.domain}] ${toHeadingText(record.attempted)}`,
     `- id: ${record.id}`,
     `- created_at: ${record.created_at}`,
     `- environment: ${record.environment}`,
