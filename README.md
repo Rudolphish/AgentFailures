@@ -208,6 +208,14 @@ curl -sS "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 
 ## デプロイ
 
+`main` へマージされた変更は GitHub Actions が自動でデプロイする。
+型検査とビルド検証を通したうえでデプロイし、デプロイ後に `/health` が `ok` を
+返すことまで確認する。定義は
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) にある。
+設定手順は [`docs/setup-guide.md`](docs/setup-guide.md) の手順 6 を参照。
+
+手作業で行う場合は以下のとおり。
+
 ```bash
 npx wrangler deploy
 ```
