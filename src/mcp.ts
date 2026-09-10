@@ -46,7 +46,9 @@ export function createMcpServer(env: Env): McpServer {
     },
     async (input) => {
       const records = await searchFailures(store, input);
-      return { content: [{ type: 'text', text: formatSearchResult(records) }] };
+      return {
+        content: [{ type: 'text', text: formatSearchResult(records, input.detail ?? 'summary') }],
+      };
     },
   );
 

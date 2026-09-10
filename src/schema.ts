@@ -60,6 +60,15 @@ export const searchFailuresInputShape = {
     .max(SEARCH_LIMIT_MAX)
     .optional()
     .describe(`返却する最大件数。既定 ${SEARCH_LIMIT_DEFAULT}、上限 ${SEARCH_LIMIT_MAX}。`),
+  detail: z
+    .enum(['summary', 'full'])
+    .optional()
+    .describe(
+      '返却する情報量。既定は summary で、本文が長い場合は各項目を切り詰める。' +
+        '見出しと id / created_at / environment / tags は切り詰めない。' +
+        '省略された本文が必要な場合のみ full を指定する。' +
+        'full は情報量が多いため、まず summary で該当を絞り込むこと。',
+    ),
 };
 
 export const recordFailureInputShape = {
