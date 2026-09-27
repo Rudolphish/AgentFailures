@@ -526,7 +526,16 @@ Supabase の無料プランは、7 日間データベースへのアクセスが
 
 これを避けるため、Cron Trigger による定期アクセスを設定してある
 （`wrangler.jsonc` の `triggers.crons`）。停止が繰り返される場合は、
-当該設定が有効なままか確認すること。
+まず keep-alive が実際に動いていたかを確認する。
+
+```sql
+-- Supabase の SQL Editor で実行する
+select max(ran_at) from public.keepalive_log;
+```
+
+この値が 4 日以上前であれば Cron が動いていない。Cloudflare ダッシュボードの
+Workers → 当該 Worker → Settings → Trigger Events で Cron が登録されているか、
+Logs に `scheduled` の実行が現れているかを確認する。
 
 ### 自動レビューが止まらない
 

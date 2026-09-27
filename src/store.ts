@@ -10,6 +10,9 @@ import {
 
 const TABLE = 'failures';
 
+/** keep-alive の実行記録を追記するテーブル。 */
+const KEEPALIVE_TABLE = 'keepalive_log';
+
 const COLUMNS =
   'id, created_at, domain, environment, attempted, observed, cause, cause_is_assumption, workaround, tags';
 
@@ -86,12 +89,46 @@ export async function recordFailure(
 }
 
 /**
- * Supabase 無料プランの自動停止を回避するための最小クエリ。
- * 行が存在しなくても DB へのアクセスとしては成立する。
+ * keep-alive の結果。
+ *
+ * 記録まで到達したかどうかを呼び出し側へ返す。疎通はできたが記録できなかった
+ * 場合を「成功」として片付けると、可観測性を足した意味が無くなるためである。
  */
-export async function ping(store: Store): Promise<void> {
-  const { error } = await store.from(TABLE).select('id').limit(1);
-  if (error !== null) {
-    throw new Error(`keep-alive クエリに失敗しました: ${error.message}`);
+export type PingResult = { recorded: true } | { recorded: false; reason: string };
+
+/**
+ * Supabase 無料プランの自動停止を回避する。
+ *
+ * 読み取りではなく `keepalive_log` への 1 行追記とする。理由は 2 つある。
+ *
+ *   1. 読み取りが「アクティビティ」として数えられない可能性を排除できる。
+ *      書き込みであれば、その曖昧さが残らない。
+ *   2. 「最後に keep-alive が成功したのはいつか」が DB を見れば分かる。
+ *      2026-09-27 の停止では Cron が動いたかどうかを確かめる手段が無く、
+ *      これが切り分けを最も妨げた。
+ *
+ * 追記に失敗した場合は `failures` の読み取りへ退避する。keepalive_log の
+ * マイグレーション適用とデプロイの順序はどちらが先にもなりうるため、
+ * テーブルがまだ無いあいだ停止回避そのものを失わせないための措置である。
+ * 退避したことは理由とともに呼び出し側へ返し、ログへ残す。
+ */
+export async function ping(store: Store): Promise<PingResult> {
+  // PostgREST へ空のオブジェクトを渡す挙動に依存しないよう、時刻は明示的に送る。
+  // 列側の既定値は SQL エディタからの手動追記のために残してある。
+  const { error: insertError } = await store
+    .from(KEEPALIVE_TABLE)
+    .insert({ ran_at: new Date().toISOString() });
+
+  if (insertError === null) {
+    return { recorded: true };
   }
+
+  const { error: selectError } = await store.from(TABLE).select('id').limit(1);
+  if (selectError !== null) {
+    throw new Error(
+      `keep-alive に失敗しました: 追記 = ${insertError.message} / 読み取り = ${selectError.message}`,
+    );
+  }
+
+  return { recorded: false, reason: insertError.message };
 }

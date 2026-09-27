@@ -32,7 +32,8 @@ src/
 ├── format.ts     検索結果の整形
 └── env.ts        シークレットの型と存在検査
 supabase/migrations/
-└── 20260908000001_create_failures.sql
+├── 20260908000001_create_failures.sql
+└── 20260927000001_create_keepalive_log.sql
 ```
 
 ## 提供ツール
@@ -214,6 +215,13 @@ curl -sS "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 ```
 
 `wrangler dev` を実行している端末に keep-alive の結果が出力される。
+成功時は `keepalive_log へ追記しました` と出る。
+
+追記されたかどうかは Supabase 側からも確認できる。
+
+```sql
+select max(ran_at) from public.keepalive_log;
+```
 
 ## デプロイ
 
@@ -325,8 +333,20 @@ Supabase の無料プランは、7 日間データベースへのアクセスが
 自動的に停止する。停止した場合、ダッシュボードから手動で復旧する必要がある。
 
 これを回避するため、Cron Trigger（`wrangler.jsonc` の `triggers.crons`）で
-毎週月曜・木曜の 03:00 UTC に軽量なクエリを実行している。アクセス間隔は
+毎週月曜・木曜の 03:00 UTC に `keepalive_log` へ 1 行追記している。アクセス間隔は
 最大 4 日となり、自動停止の閾値を下回る。
+
+**読み取りではなく書き込みである理由**は 2 つある。読み取りがアクティビティとして
+数えられない可能性を排除できること、そして「最後に keep-alive が成功したのはいつか」
+が DB を見れば分かることである。後者は 2026-09-27 の停止時に最も困った点で、
+Cron が動いたかどうかを確かめる手段が無かった。
+
+```sql
+-- 最後に keep-alive が成功した時刻
+select max(ran_at) from public.keepalive_log;
+```
+
+この値が 4 日以上前であれば Cron が動いていない。
 
 ### 認証
 

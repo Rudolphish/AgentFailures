@@ -143,7 +143,10 @@ export default {
 
   /**
    * Supabase 無料プランは 7 日間 DB アクセスが無いとプロジェクトが自動停止するため、
-   * Cron Trigger から軽量なクエリを実行して停止を回避する。
+   * Cron Trigger から `keepalive_log` へ 1 行追記して停止を回避する。
+   *
+   * 追記まで到達できなかった場合は、疎通していても error として記録する。
+   * keep-alive は失敗しても誰も困らないため、自ら声を上げなければ気づかれない。
    */
   async scheduled(_event, env, ctx) {
     if (missingEnvKeys(env).length > 0) {
@@ -152,7 +155,15 @@ export default {
     }
     ctx.waitUntil(
       ping(createStore(env)).then(
-        () => console.log('keep-alive: Supabase への疎通に成功しました。'),
+        (result) => {
+          if (result.recorded) {
+            console.log('keep-alive: keepalive_log へ追記しました。');
+          } else {
+            console.error(
+              `keep-alive: 疎通はしましたが keepalive_log へ追記できませんでした: ${result.reason}`,
+            );
+          }
+        },
         (error: unknown) => console.error('keep-alive: 失敗しました。', error),
       ),
     );

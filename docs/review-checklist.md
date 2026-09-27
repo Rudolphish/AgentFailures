@@ -66,7 +66,11 @@
       ユーザー単位・リクエスト単位の情報をモジュールスコープに置くと他リクエストへ漏れる）
 - [ ] keep-alive の Cron Trigger（`wrangler.jsonc` の `triggers.crons`）を消していないか。
       実行間隔が 7 日以上空く設定になっていないか（Supabase 無料プランが自動停止する）
-- [ ] `scheduled` ハンドラの失敗を握りつぶしていないか（`console.error` まで消していないか）
+- [ ] keep-alive を読み取りへ戻していないか。`keepalive_log` への追記であることに
+      意味がある（アクティビティとして確実に数えられ、実行の有無が後から追える）
+- [ ] `scheduled` ハンドラの失敗を握りつぶしていないか（`console.error` まで消していないか）。
+      疎通したが `keepalive_log` へ追記できなかった場合も `console.error` へ出ているか。
+      **keep-alive は失敗しても誰も困らないため、自ら声を上げない実装は気づかれない**
 
 ## 6. スコープ
 

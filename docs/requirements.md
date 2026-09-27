@@ -77,7 +77,12 @@ Cloudflare Workers の Cron Trigger により定期的な軽量クエリ（keep-
 実行する。
 
 - 実行間隔: 毎週月曜・木曜 03:00 UTC（アクセス間隔は最大 4 日）
-- 実行内容: `failures` テーブルに対する `select id limit 1`
+- 実行内容: `keepalive_log` テーブルへの 1 行追記
+
+当初は `failures` テーブルに対する `select id limit 1` としていたが、
+2026-09-27 に上記の設定下で自動停止が発生したため追記へ変更した。読み取りが
+アクティビティとして数えられない可能性を排除し、同時に「最後に keep-alive が
+成功した時刻」を `select max(ran_at) from keepalive_log` で確認できるようにする。
 
 ## 8. スコープ外
 
