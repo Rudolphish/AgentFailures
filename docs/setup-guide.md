@@ -73,35 +73,33 @@ npm run typecheck
 
 ## 手順 1. 自動レビューの有効化
 
-Claude Code のフックとして動作する自動レビュー機構を有効にする。
-この手順を行わない場合、レビューは自動実行されない（手動実行は可能である）。
+Claude Code のフックとして動作する自動レビュー機構は、`.claude/settings.json` が
+リポジトリに追跡されているため、clone した時点で有効である。**設置作業は要らない。**
+
+以前は `docs/claude-settings.example.json` を手でコピーする手順だったが、
+5 週間コピーされず、その間レビューが一度も自動実行されていなかったため廃止した。
 
 ### 1-1. 設定内容の確認
 
-設置するファイルの内容を確認する。このファイルは Claude Code に対して
-任意のコマンドの実行を許可する設定を含むため、必ず目を通すこと。
+このファイルは Claude Code に対してコマンドの実行を許可する設定である。
+初回のセッションでツール側が確認を求めるため、その際に目を通すこと。
 
 ```bash
-cat docs/claude-settings.example.json
+cat .claude/settings.json
 ```
 
 確認すべき点は次の 2 点である。
 
 - `hooks` に定義されたコマンドが `.claude/hooks/` 配下のスクリプトのみを指していること
 - `permissions.deny` に、意図しない破壊的操作が漏れていないこと
+  （ただし文字列一致による多層防御であり、確実な遮断ではない）
 
-### 1-2. 設置
-
-```bash
-cp docs/claude-settings.example.json .claude/settings.json
-```
-
-### 1-3. 反映
+### 1-2. 反映
 
 フックはセッション開始時に読み込まれる。実行中の Claude Code がある場合は
 一度終了し、起動し直すこと。
 
-### 1-4. 動作確認
+### 1-3. 動作確認
 
 ```bash
 node .claude/hooks/review-status.mjs --range
