@@ -76,7 +76,9 @@ Supabase の無料プランは 7 日間データベースへのアクセスが�
 Cloudflare Workers の Cron Trigger により定期的な軽量クエリ（keep-alive）を
 実行する。
 
-- 実行間隔: 毎週月曜・木曜 03:00 UTC（アクセス間隔は最大 4 日）
+- 実行間隔: 毎週日曜・水曜 03:00 UTC（アクセス間隔は最大 4 日）
+  - 設定値は `0 3 * * 1,4`。Cloudflare の cron は曜日を 1 始まりで数え、
+    1 が日曜であるため、この式は日曜と水曜を指す（詳細は `wrangler.jsonc` の注釈）
 - 実行内容: `keepalive_log` テーブルへの 1 行追記
 
 当初は `failures` テーブルに対する `select id limit 1` としていたが、

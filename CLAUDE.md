@@ -67,6 +67,24 @@ Cloudflare が返すのは 1101 のエラーページのみで、原因を示す
 これはエスケープではなく空白へ置換している（`*` を打ち消す手段が無いため）。
 ユーザー入力をそのまま `ilike` に渡さないこと。
 
+### Cron の曜日は 1 始まりで、1 が日曜である
+
+`wrangler.jsonc` の `0 3 * * 1,4` は**日曜と水曜**であり、月曜と木曜ではない。
+
+Cloudflare の cron パーサ（`cloudflare/saffron`）は曜日を 1 始まりで数える。
+`saffron/src/parse.rs` の `dow_expr` のテストが
+`SUN=1 / MON=2 / TUE=3 / WED=4 / THU=5 / FRI=6 / SAT=7` を示している。
+一般的な Unix cron（0=日曜）とは 1 つずれるため、他所から持ってきた式は
+そのまま使えない。
+
+実際の発火日はダッシュボードの Settings → Trigger Events に
+「At 03:00 AM on Sunday and Wednesday」のように文章で表示される。
+**式を変えたらここを必ず読むこと。** 式だけを見て判断すると 1 日ずれる。
+
+なお同リポジトリの `saffron/src/lib.rs` にある `byte_to_weekday` は
+`0 => Sun` と書かれているが、これはパース後に -1 された内部表現であり、
+入力の番号付けではない。ここを入力側と取り違えて誤った結論を出した。
+
 ### 日本語の全文検索に tsvector は使えない
 
 PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simple` 設定では
