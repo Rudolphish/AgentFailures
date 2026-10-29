@@ -85,6 +85,26 @@ Cloudflare の cron パーサ（`cloudflare/saffron`）は曜日を 1 始まり�
 `0 => Sun` と書かれているが、これはパース後に -1 された内部表現であり、
 入力の番号付けではない。ここを入力側と取り違えて誤った結論を出した。
 
+### 停止中でも Supabase のログは読める
+
+プロジェクトが停止すると `execute_sql` は
+`Database is possibly not accessible at the moment` を返し、Worker 経由は
+Cloudflare の error code 1016 になる。**この状態でも `query_logs`（ログ参照）は
+使える。** 停止前後の記録を読めるため、復旧を待たずに切り分けられる。
+
+- `edge_logs` — keep-alive の `POST | 201 | /rest/v1/keepalive_log` と応答コード。
+  **keep-alive が発火したかどうかはここで分かる。** `keepalive_log` を読めなくてよい
+- `postgres_logs` — `database system was interrupted; last known up at ...` に
+  停止時刻が出る。`checkpoint starting: immediate force wait` と
+  `restore point ... created` の並びが停止操作の直前に現れる
+
+**最終書き込み時刻と停止時刻の差を必ず確認すること。** keep-alive を入れてあると
+「無アクセスで停止した」と決めつけがちだが、2026-10-29 の停止は最終書き込みの
+26 時間 36 分後であり、無アクセスでは説明できなかった。
+
+復旧は point-in-time recovery を伴う（`selected new timeline ID` が出る）。
+復旧後はデータの件数を実際に数えて欠落が無いことを確認すること。
+
 ### 日本語の全文検索に tsvector は使えない
 
 PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simple` 設定では
