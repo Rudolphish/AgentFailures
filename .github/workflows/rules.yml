@@ -1,0 +1,52 @@
+name: Rules
+
+# docs/rules.md を直したのに CLAUDE.md の管理ブロックを同期し忘れる、を防ぐ。
+#
+# このリポジトリは規則の発信元であると同時に、規則の宛先でもある。
+# 他リポジトリへ配る前に、まず自分自身に配れていることを CI で保証する。
+# 配布先が 1 つも無い状態で他へ撒くと、壊れたときに直す箇所が増える。
+#
+# ここは「確認」だけで、書き換えはしない。CLAUDE.md はエージェントの振る舞いを
+# 縛るファイルなので、中身が変わる操作は必ず人のマージを通す。
+#
+# 外部アクションは GitHub 自身のもの（checkout / setup-node）に限る。
+# 理由は deploy.yml の先頭コメントに同じ。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/rules.md'
+      - 'CLAUDE.md'
+      - 'scripts/sync-rules.mjs'
+      - '.github/workflows/rules.yml'
+  pull_request:
+    paths:
+      - 'docs/rules.md'
+      - 'CLAUDE.md'
+      - 'scripts/sync-rules.mjs'
+      - '.github/workflows/rules.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rules-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 管理ブロックが docs/rules.md と一致するか
+        run: node scripts/sync-rules.mjs --target CLAUDE.md --check
+
+      - name: 不一致のときの直し方
+        if: failure()
+        run: |
+          echo '::error::CLAUDE.md の管理ブロックが docs/rules.md と一致していません。'
+          echo '::error::次を実行してコミットしてください: node scripts/sync-rules.mjs --target CLAUDE.md'

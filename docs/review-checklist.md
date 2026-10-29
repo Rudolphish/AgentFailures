@@ -84,6 +84,15 @@
       [`CLAUDE.md`](../CLAUDE.md) の「review-decisions.csv へ書いてよいもの」）
 - [ ] `accepted` の evidence に、修正コミットと独立した PASS の根拠が書かれているか
 
+## 7.5 規則（docs/rules.md）
+
+- [ ] `CLAUDE.md` の管理ブロックを手で編集していないか
+      （`docs/rules.md` を直して `scripts/sync-rules.mjs` を通す）
+- [ ] 規則に**由来となった失敗談の id** が書かれているか。根拠の無い規則を置いていないか
+- [ ] 見出し直後の段落が 1〜2 文に収まっているか。**同じ文を二箇所に書いていないか**
+- [ ] 規則の追加・改稿を、提案した側が自分でマージしていないか
+      （`review-decisions.csv` と同じ規律。公開は人の承認を要する）
+
 ## 8. 一般的なコード品質
 
 - [ ] TypeScript の型エラーがないか（`npm run typecheck`）
