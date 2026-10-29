@@ -70,7 +70,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 規則を取り込む
-        id: sync
         run: |
           set -euo pipefail
           SRC='https://raw.githubusercontent.com/Rudolphish/AgentFailures/main/CLAUDE.md'
@@ -115,10 +114,17 @@ jobs:
           BRANCH="agentfailures-rules/$(date -u +%Y%m%d)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c "$BRANCH"
+          # 同じ日に 2 回走ると -c は既存ブランチで失敗する（手動実行で起きる）。
+          # -C と force-with-lease で、同じブランチへ上書きして PR を更新する。
+          git switch -C "$BRANCH"
           git add CLAUDE.md
           git commit -m 'chore: AgentFailures の規則を CLAUDE.md へ取り込む'
-          git push -u origin "$BRANCH"
+          git push -u --force-with-lease origin "$BRANCH"
+          # 既に PR があるときに gh pr create は失敗する。push で更新済みなので作らない。
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo '既存の pull request を更新しました。'
+            exit 0
+          fi
           gh pr create \
             --title 'chore: AgentFailures の規則を取り込む' \
             --body '[AgentFailures](https://github.com/Rudolphish/AgentFailures/blob/main/docs/rules.md) の規則を CLAUDE.md の管理ブロックへ取り込みます。ブロックの外は変更していません。内容に異論があれば、このリポジトリではなく AgentFailures の docs/rules.md へ提案してください。'
@@ -134,7 +140,10 @@ jobs:
 requests」を有効にしておくこと。** 無効のままだと `gh pr create` が失敗する。
 
 なお、**前回の PR がマージされていなくても、翌週は別のブランチで新しい PR が出る。**
-規則が毎週変わるものではないため実際にはまれだが、溜まったら古い方を閉じること。
+ブランチ名が日付（UTC）であるため、週をまたぐと別物になる。規則が毎週変わるものでは
+ないため実際にはまれだが、溜まったら古い方を閉じること。
+同じ日に 2 回走った場合は、同じブランチへ上書きして既存の PR を更新する
+（手動実行で起きる。`git switch -c` のままでは既存ブランチで落ちた）。
 
 ## 既知の穴
 
