@@ -149,8 +149,12 @@ function splice(targetText, rendered, revision) {
     ? existingStamp
     : `${START} updated=${today} source=${revision} -->`;
 
+  // 刻印の次に空行を置く。Prettier は HTML コメントの直後に続く箇条書きを
+  // 整形対象とみなし、空行が無いと `--check` で落ちる（LearnAI の CI で実測）。
+  // 空行が無いと**消費側の週次 PR が毎回 CI で落ちる**ため、書式の問題ではない。
+  // 比較は trim() 後に行うので、この空行で差分が出ることはない。
   const next =
-    targetText.slice(0, startIdx) + stamp + '\n' + rendered + '\n' + targetText.slice(endIdx);
+    targetText.slice(0, startIdx) + stamp + '\n\n' + rendered + '\n' + targetText.slice(endIdx);
 
   return { next, unchanged };
 }

@@ -97,9 +97,11 @@ jobs:
             console.log('最新です。');
             process.exit(0);
           }
+          // 刻印の次に空行を置く。Prettier は HTML コメントの直後に続く箇条書きを
+          // 整形対象とみなし、空行が無いと --check で落ちる（LearnAI の CI で実測）。
           writeFileSync(
             'CLAUDE.md',
-            target.slice(0, dst.s) + stamp + '\n' + src.inner.trim() + '\n' + target.slice(dst.e),
+            target.slice(0, dst.s) + stamp + '\n\n' + src.inner.trim() + '\n' + target.slice(dst.e),
           );
           console.log('CHANGED');
           JS
@@ -134,7 +136,19 @@ jobs:
 
 `cron` の分を 41 にしているのは、0 分に集中するスケジュールを避けるため。
 
-### 3. リポジトリ側の設定を確認する
+### 3. 整形検査（Prettier 等）がある場合
+
+**`CLAUDE.md` が整形検査の対象かどうかを確かめること。** 対象であれば、設置した
+`CLAUDE.md` がその検査を通ることを必ず確認する。通らない状態で設置すると、
+**週次の pull request が毎回 CI で落ちる**（整形の問題ではなく、配布が止まる問題になる）。
+
+LearnAI では `npm run check` が `prettier --check .` を含み、`.prettierignore` に
+`CLAUDE.md` が入っていなかった。実測したところ、Prettier は規則の本文には手を付けないが、
+**HTML コメントの直後に空行が無いと落ちる。** 上の雛形が刻印の次に空行を置いているのは
+このためである。確認は「変更前のファイルが検査を通ること」を基準線に取ってから行う
+（元から落ちているのか、こちらが落としたのかを区別できない）。
+
+### 4. リポジトリ側の設定を確認する
 
 **Settings → Actions → General の「Allow GitHub Actions to create and approve pull
 requests」を有効にしておくこと。** 無効のままだと `gh pr create` が失敗する。
