@@ -97,11 +97,11 @@ jobs:
             console.log('最新です。');
             process.exit(0);
           }
-          // 刻印の次に空行を置く。Prettier は HTML コメントの直後に続く箇条書きを
+          // 箇条書きの前後に空行を置く。Prettier は HTML コメントに隣接する箇条書きを
           // 整形対象とみなし、空行が無いと --check で落ちる（LearnAI の CI で実測）。
           writeFileSync(
             'CLAUDE.md',
-            target.slice(0, dst.s) + stamp + '\n\n' + src.inner.trim() + '\n' + target.slice(dst.e),
+            target.slice(0, dst.s) + stamp + '\n\n' + src.inner.trim() + '\n\n' + target.slice(dst.e),
           );
           console.log('CHANGED');
           JS
@@ -144,9 +144,21 @@ jobs:
 
 LearnAI では `npm run check` が `prettier --check .` を含み、`.prettierignore` に
 `CLAUDE.md` が入っていなかった。実測したところ、Prettier は規則の本文には手を付けないが、
-**HTML コメントの直後に空行が無いと落ちる。** 上の雛形が刻印の次に空行を置いているのは
-このためである。確認は「変更前のファイルが検査を通ること」を基準線に取ってから行う
-（元から落ちているのか、こちらが落としたのかを区別できない）。
+**HTML コメントに隣接する箇条書きは、間に空行が無いと落ちる。** 上の雛形が箇条書きの
+前後に空行を置いているのはこのためである。
+
+確認は 2 点を守ること。
+
+- **「変更前のファイルが検査を通ること」を基準線に取ってから行う。** これが無いと、
+  元から落ちているのか、こちらが落としたのかを区別できない
+- **消費側が固定しているバージョンで測る。** `npx prettier@3.3.3` で確認して通したものが、
+  リポジトリが使う 3.9.9 で落ちた。3.3.3 は刻印の次の空行だけを要求し、3.9.9 は終了
+  マーカーの前も要求する。**整形規則はバージョンで変わるため、`package-lock.json` の
+  解決済みバージョンを見てから流す**（`npm ci` を済ませて `npx prettier` を使えば確実）
+
+ワークフローの YAML も `prettier --check .` の対象になる。こちらはリポジトリごとに
+`prettier --write` で整形してよい。**週次で配り直すのは `CLAUDE.md` のブロックだけ**で、
+ワークフローは設置時に 1 回置くだけだからである。
 
 ### 4. リポジトリ側の設定を確認する
 
