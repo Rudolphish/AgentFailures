@@ -33,9 +33,15 @@ function parseArgs(argv) {
   const args = { target: null, source: null, check: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--target') args.target = argv[(i += 1)];
-    else if (a === '--source') args.source = argv[(i += 1)];
-    else if (a === '--check') args.check = true;
+    if (a === '--target' || a === '--source') {
+      const value = argv[(i += 1)];
+      // 値の欠落を見逃すと undefined が渡り、readFileSync の分かりにくい例外で落ちる。
+      if (value === undefined || value.startsWith('--')) {
+        throw new Error(`${a} に値がありません`);
+      }
+      if (a === '--target') args.target = value;
+      else args.source = value;
+    } else if (a === '--check') args.check = true;
     else throw new Error(`不明な引数: ${a}`);
   }
   if (args.target === null) throw new Error('--target が必要です');
@@ -106,6 +112,13 @@ function renderRules(rules) {
   return rules.map((r) => `- ${r.text}`).join('\n');
 }
 
+/**
+ * 刻印の `source=` に入れる値。
+ *
+ * **同期を実行した時点の HEAD であり、規則を変更したコミットそのものではない。**
+ * 規則を直してから同期を走らせ、まとめてコミットする流れになるため、入るのは
+ * その 1 つ前のコミットになる。版の同一性ではなく、いつ時点の作業かの目安として読む。
+ */
 function sourceRevision(origin) {
   if (/^https?:\/\//.test(origin)) return 'remote';
   try {
