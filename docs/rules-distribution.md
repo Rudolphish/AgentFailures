@@ -70,7 +70,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 規則を取り込む
-        id: sync
         run: |
           set -euo pipefail
           SRC='https://raw.githubusercontent.com/Rudolphish/AgentFailures/main/CLAUDE.md'
@@ -98,9 +97,11 @@ jobs:
             console.log('最新です。');
             process.exit(0);
           }
+          // 箇条書きの前後に空行を置く。Prettier は HTML コメントに隣接する箇条書きを
+          // 整形対象とみなし、空行が無いと --check で落ちる（LearnAI の CI で実測）。
           writeFileSync(
             'CLAUDE.md',
-            target.slice(0, dst.s) + stamp + '\n' + src.inner.trim() + '\n' + target.slice(dst.e),
+            target.slice(0, dst.s) + stamp + '\n\n' + src.inner.trim() + '\n\n' + target.slice(dst.e),
           );
           console.log('CHANGED');
           JS
@@ -115,10 +116,17 @@ jobs:
           BRANCH="agentfailures-rules/$(date -u +%Y%m%d)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c "$BRANCH"
+          # 同じ日に 2 回走ると -c は既存ブランチで失敗する（手動実行で起きる）。
+          # -C と force-with-lease で、同じブランチへ上書きして PR を更新する。
+          git switch -C "$BRANCH"
           git add CLAUDE.md
           git commit -m 'chore: AgentFailures の規則を CLAUDE.md へ取り込む'
-          git push -u origin "$BRANCH"
+          git push -u --force-with-lease origin "$BRANCH"
+          # 既に PR があるときに gh pr create は失敗する。push で更新済みなので作らない。
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            echo '既存の pull request を更新しました。'
+            exit 0
+          fi
           gh pr create \
             --title 'chore: AgentFailures の規則を取り込む' \
             --body '[AgentFailures](https://github.com/Rudolphish/AgentFailures/blob/main/docs/rules.md) の規則を CLAUDE.md の管理ブロックへ取り込みます。ブロックの外は変更していません。内容に異論があれば、このリポジトリではなく AgentFailures の docs/rules.md へ提案してください。'
@@ -128,13 +136,40 @@ jobs:
 
 `cron` の分を 41 にしているのは、0 分に集中するスケジュールを避けるため。
 
-### 3. リポジトリ側の設定を確認する
+### 3. 整形検査（Prettier 等）がある場合
+
+**`CLAUDE.md` が整形検査の対象かどうかを確かめること。** 対象であれば、設置した
+`CLAUDE.md` がその検査を通ることを必ず確認する。通らない状態で設置すると、
+**週次の pull request が毎回 CI で落ちる**（整形の問題ではなく、配布が止まる問題になる）。
+
+LearnAI では `npm run check` が `prettier --check .` を含み、`.prettierignore` に
+`CLAUDE.md` が入っていなかった。実測したところ、Prettier は規則の本文には手を付けないが、
+**HTML コメントに隣接する箇条書きは、間に空行が無いと落ちる。** 上の雛形が箇条書きの
+前後に空行を置いているのはこのためである。
+
+確認は 2 点を守ること。
+
+- **「変更前のファイルが検査を通ること」を基準線に取ってから行う。** これが無いと、
+  元から落ちているのか、こちらが落としたのかを区別できない
+- **消費側が固定しているバージョンで測る。** `npx prettier@3.3.3` で確認して通したものが、
+  リポジトリが使う 3.9.9 で落ちた。3.3.3 は刻印の次の空行だけを要求し、3.9.9 は終了
+  マーカーの前も要求する。**整形規則はバージョンで変わるため、`package-lock.json` の
+  解決済みバージョンを見てから流す**（`npm ci` を済ませて `npx prettier` を使えば確実）
+
+ワークフローの YAML も `prettier --check .` の対象になる。こちらはリポジトリごとに
+`prettier --write` で整形してよい。**週次で配り直すのは `CLAUDE.md` のブロックだけ**で、
+ワークフローは設置時に 1 回置くだけだからである。
+
+### 4. リポジトリ側の設定を確認する
 
 **Settings → Actions → General の「Allow GitHub Actions to create and approve pull
 requests」を有効にしておくこと。** 無効のままだと `gh pr create` が失敗する。
 
 なお、**前回の PR がマージされていなくても、翌週は別のブランチで新しい PR が出る。**
-規則が毎週変わるものではないため実際にはまれだが、溜まったら古い方を閉じること。
+ブランチ名が日付（UTC）であるため、週をまたぐと別物になる。規則が毎週変わるものでは
+ないため実際にはまれだが、溜まったら古い方を閉じること。
+同じ日に 2 回走った場合は、同じブランチへ上書きして既存の PR を更新する
+（手動実行で起きる。`git switch -c` のままでは既存ブランチで落ちた）。
 
 ## 既知の穴
 
