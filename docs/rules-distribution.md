@@ -121,7 +121,8 @@ jobs:
           // ブランチ名に入れる版。刻印の source= を使う。これで**同じ UTC 日のうちは
           // 内容とブランチが 1 対 1 になる**（日付だけだと、同じ日に内容が 2 回変わった
           // ときに古い中身の pull request が残る）。日付も入るため、日をまたぐと
-          // 同じ内容でも別のブランチになる。その扱いは rules-distribution.md に書いた。
+          // 同じ内容でも別のブランチになる。その扱いは冒頭の URL の
+          // rules-distribution.md に書いた。
           const rev = (stamp.match(/source=(\S+)/) ?? [, 'unknown'])[1].replace(/[^A-Za-z0-9._-]/g, '');
           appendFileSync(process.env.GITHUB_OUTPUT, `rev=${rev}\n`);
 
@@ -240,10 +241,22 @@ approve pull requests`）。
 - **(c) 内容が変わった場合も、別のブランチと pull request になる**（刻印の `source=`
   が変わるため）。規則が毎週変わるものではないため、実際にはまれである
 
-**人が PR を閉じて却下しても、ブランチが残っていれば pull request は作り直される**
-（開いている PR が無いため）。同じ UTC 日の再実行だけでなく、**日付が変われば
-新しいブランチで再び出る。** 却下するなら、ブランチも削除するか、配布元の
-`rules.md` 側で直すこと。
+**人が PR を閉じて却下しても、pull request は次の実行で必ず作り直される。**
+`CLAUDE.md` に差分がある限り止まらない。**ブランチを削除しても止まらない。**
+雛形の流れがそうなっている。
+
+1. `git diff --quiet -- CLAUDE.md` — 未マージの間は差分が残るので、先へ進む
+2. `git ls-remote ... "$BRANCH"` — **ブランチの有無は push するかどうかだけを決める。**
+   消してあれば push し直し、残っていれば push を飛ばす
+3. `gh pr list --head "$BRANCH" --state open` — 判定するのは**開いている PR の有無**。
+   閉じた PR は数えないので空になり、`gh pr create` へ進む
+
+**止める手段は 2 つだけである。**
+
+- **配布元の `rules.md` を直す**（差分そのものを無くす。規則の内容に異論があるなら、
+  本来こちらが正しい経路である）
+- **配布先でワークフローを無効化する**（Actions の画面で無効にする、または
+  `.github/workflows/agentfailures-rules.yml` を消す）
 
 なお **(a) を無くすには、ブランチ名から日付を外して `source=` だけにすればよい**
 （同じ内容なら常に同名になり、既存ブランチの分岐に入る）。そうしていないのは
