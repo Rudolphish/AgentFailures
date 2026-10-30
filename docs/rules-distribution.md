@@ -26,6 +26,24 @@ AgentFailures/CLAUDE.md  ← 管理ブロック。**配布元はここ**
 
 AgentFailures は public なので、**トークンは要らない**。
 
+## 配布先
+
+| リポジトリ | 置き場所 | 状態 |
+| --- | --- | --- |
+| AgentFailures | `CLAUDE.md` の `## 共通の規則` | 配布元。CI が `rules.md` との一致を検査する |
+| gamers-highlight | `CLAUDE.md` の `## DB（Supabase）` の直前 | 設置済み |
+| kukuWebApp | `CLAUDE.md` の末尾 | 設置済み。**このリポジトリの独自記述は 248 文字**で、配布分の方が大きい |
+| LearnAI | `CLAUDE.md` の `## Git の規則` の直前 | 設置済み。**`prettier --check .` が CLAUDE.md を検査する**（下記） |
+| Tasquest | — | **対象外。** `CLAUDE.md` が無く、2026-09-17 以降 push が無い |
+
+**Tasquest を外したのは意図的である。** `CLAUDE.md` が存在せず、中身が配布規則だけの
+ファイルを新規に作ると、設計の向きが逆になる（リポジトリ自身の指示書の中に規則を
+間借りさせる、が前提）。休止中のリポジトリに配っても読まれない。再開してリポジトリ
+自身の `CLAUDE.md` ができた時点で、「受け取る側の設定」の手順を踏めばよい。
+
+**この表は手で書いている。** 配布先が増減したら直すこと。自動で集める手段は無く、
+後述の「既知の穴」と同じ性質の弱点である。
+
 ## 受け取る側の設定
 
 ### 1. CLAUDE.md にブロックを置く
@@ -49,6 +67,14 @@ name: AgentFailures Rules
 
 # Rudolphish/AgentFailures の規則を CLAUDE.md の管理ブロックへ取り込む。
 # 差分があれば pull request を出すだけで、自動では反映しない（マージが承認）。
+#
+# 取得元は AgentFailures 自身の CLAUDE.md にある管理ブロック。向こうの CI が
+# docs/rules.md との一致を検査しているため、**自分に配れていないものは流れてこない**。
+# 取得するのはデータだけで、スクリプトは取得しない（他所のコードを実行しない）。
+# AgentFailures は public なのでトークンは要らない。
+#
+# 手順と既知の穴は次を参照。
+# https://github.com/Rudolphish/AgentFailures/blob/main/docs/rules-distribution.md
 
 on:
   schedule:
@@ -70,6 +96,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: 規則を取り込む
+        id: sync
         run: |
           set -euo pipefail
           SRC='https://raw.githubusercontent.com/Rudolphish/AgentFailures/main/CLAUDE.md'
@@ -77,7 +104,7 @@ jobs:
           # --input-type=module は必須。runner の既定 Node 版によっては
           # 標準入力が CommonJS として扱われ、import が構文エラーになる。
           node --input-type=module - <<'JS'
-          import { readFileSync, writeFileSync } from 'node:fs';
+          import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
           const START = '<!-- agentfailures:rules:start';
           const END = '<!-- agentfailures:rules:end -->';
           const cut = (text, what) => {
@@ -90,6 +117,11 @@ jobs:
           const src = cut(source, '取得元');
           const stamp = source.slice(src.s, source.indexOf('\n', src.s));
           if (src.inner.trim() === '') throw new Error('取得元のブロックが空です');
+
+          // ブランチ名に入れる版。刻印の source= を使い、**内容とブランチを 1 対 1 にする**。
+          // 日付だけだと、同じ日に内容が 2 回変わったときに古い中身の pull request が残る。
+          const rev = (stamp.match(/source=(\S+)/) ?? [, 'unknown'])[1].replace(/[^A-Za-z0-9._-]/g, '');
+          appendFileSync(process.env.GITHUB_OUTPUT, `rev=${rev}\n`);
 
           const target = readFileSync('CLAUDE.md', 'utf8');
           const dst = cut(target, 'CLAUDE.md');
@@ -113,21 +145,31 @@ jobs:
             echo '差分なし。'
             exit 0
           fi
-          BRANCH="agentfailures-rules/$(date -u +%Y%m%d)"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # 同じ日に 2 回走ると -c は既存ブランチで失敗する（手動実行で起きる）。
-          # -C と force-with-lease で、同じブランチへ上書きして PR を更新する。
-          git switch -C "$BRANCH"
-          git add CLAUDE.md
-          git commit -m 'chore: AgentFailures の規則を CLAUDE.md へ取り込む'
-          git push -u --force-with-lease origin "$BRANCH"
-          # 既に PR があるときに gh pr create は失敗する。push で更新済みなので作らない。
+          BRANCH="agentfailures-rules/$(date -u +%Y%m%d)-${{ steps.sync.outputs.rev }}"
+          # **force push はしない。** 同じ内容なら同じブランチ名になるため、既にあれば
+          # それを使う。runner の checkout には remote-tracking ref が無く、
+          # force-with-lease が効くかを確かめられなかったので、force 自体を使わない。
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "ブランチ $BRANCH は既にあります。push は行いません。"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git switch -c "$BRANCH"
+            git add CLAUDE.md
+            git commit -m 'chore: AgentFailures の規則を CLAUDE.md へ取り込む'
+            git push -u origin "$BRANCH"
+          fi
+          # **push だけ成功して pull request が出ない状態を残さない。**
+          # 「Allow GitHub Actions to create and approve pull requests」が無効だと
+          # gh pr create だけが失敗し、ブランチが残って誰も気づかない（kukuWebApp で実際に起きた）。
+          # ここを毎回通すことで、設定を有効にした次の実行で自動的に回復する。
           if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
-            echo '既存の pull request を更新しました。'
+            echo '既存の pull request があります。'
             exit 0
           fi
           gh pr create \
+            --head "$BRANCH" \
+            --base "$GITHUB_REF_NAME" \
             --title 'chore: AgentFailures の規則を取り込む' \
             --body '[AgentFailures](https://github.com/Rudolphish/AgentFailures/blob/main/docs/rules.md) の規則を CLAUDE.md の管理ブロックへ取り込みます。ブロックの外は変更していません。内容に異論があれば、このリポジトリではなく AgentFailures の docs/rules.md へ提案してください。'
         env:
@@ -162,14 +204,47 @@ LearnAI では `npm run check` が `prettier --check .` を含み、`.prettierig
 
 ### 4. リポジトリ側の設定を確認する
 
-**Settings → Actions → General の「Allow GitHub Actions to create and approve pull
-requests」を有効にしておくこと。** 無効のままだと `gh pr create` が失敗する。
+**Settings → Actions → General → Workflow permissions の「Allow GitHub Actions to create
+and approve pull requests」を有効にしておくこと。**
+
+無効のままだと、**`git push` は成功して `gh pr create` だけが失敗する。**
+ブランチが残り pull request が出ないため、**誰も気づかないまま規則が届かなくなる。**
+kukuWebApp で実際に起きた（`GraphQL: GitHub Actions is not permitted to create or
+approve pull requests`）。
+
+上の雛形は、この状態から自動で回復するようにしてある。
+
+- **ブランチ名に刻印の `source=` を入れ、内容とブランチを 1 対 1 にする。**
+  日付だけだと、同じ日に内容が 2 回変わったとき古い中身の pull request が残る
+- 同名のブランチが既にあれば push しない（**force push は使わない**）
+- **pull request が無ければ毎回作りに行く。** 設定を有効にした次の実行で回復する
+
+`git switch -C` と `--force-with-lease` は使わない。runner の checkout には対象
+ブランチの remote-tracking ref が無く、その状態で lease が効くかを**確認できなかった**
+ため、force 自体を避けている。
+
 
 なお、**前回の PR がマージされていなくても、翌週は別のブランチで新しい PR が出る。**
 ブランチ名が日付（UTC）であるため、週をまたぐと別物になる。規則が毎週変わるものでは
 ないため実際にはまれだが、溜まったら古い方を閉じること。
 同じ日に 2 回走った場合は、同じブランチへ上書きして既存の PR を更新する
 （手動実行で起きる。`git switch -c` のままでは既存ブランチで落ちた）。
+
+## 実際に通った経路（2026-10-30）
+
+**gamers-highlight で全経路が一度通っている。** 設置しただけで動作を確認していない
+状態を残さないため、ここに記録する。
+
+| 経路 | 確認 |
+| --- | --- |
+| 取得と差し込み（差分なし） | run #1。`最新です。` → `差分なし。` |
+| 取得と差し込み（差分あり） | run #2。規則が 11 本から 12 本へ変わった回 |
+| **`gh pr create`** | run #2 が [#160](https://github.com/Rudolphish/gamers-highlight/pull/160) を自動で作成。作成者は `github-actions[bot]`、ブランチは `agentfailures-rules/20261030` |
+| 差分の範囲 | 管理ブロックの中 2 行（刻印と新規則）のみ。ブロックの外は変わっていない |
+
+**`gh pr create` は最後まで未検証だった箇所である。** 規則の内容が変わる回が来るまで
+通らないため、設置から 1 日後にようやく確認できた。「Allow GitHub Actions to create
+and approve pull requests」は有効だった。
 
 ## 既知の穴
 
