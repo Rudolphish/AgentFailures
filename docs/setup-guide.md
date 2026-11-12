@@ -519,21 +519,28 @@ Worker から Supabase への接続で問題が生じている。次の順に確
 
 ### しばらく使わずにいたら接続できなくなった
 
-Supabase の無料プランは、7 日間データベースへのアクセスがないと
+Supabase の無料プランは、**7 日以上にわたり「十分な活動量」が無いと**
 プロジェクトを自動停止する。ダッシュボードから復旧できる。
 
-これを避けるため、Cron Trigger による定期アクセスを設定してある
-（`wrangler.jsonc` の `triggers.crons`）。停止が繰り返される場合は、
-まず keep-alive が実際に動いていたかを確認する。
+**keep-alive を設定してあるが、これでは停止を回避できない。**
+2026-10-29 と 2026-11-11 に停止している。**止まったら復旧する**という前提で読むこと。
+
+復旧後は、まず最後に書き込めた時刻を見る。
 
 ```sql
 -- Supabase の SQL Editor で実行する
 select max(ran_at) from public.keepalive_log;
 ```
 
-この値が 4 日以上前であれば Cron が動いていない。Cloudflare ダッシュボードの
-Workers → 当該 Worker → Settings → Trigger Events で Cron が登録されているか、
-Logs に `scheduled` の実行が現れているかを確認する。
+この値が 4 日以上前であれば、停止とは別に **Cron 自体が動いていない**。
+Cloudflare ダッシュボードの Workers → 当該 Worker → Settings → Trigger Events で
+Cron が登録されているか、Logs に `scheduled` の実行が現れているかを確認する。
+
+**復旧は point-in-time recovery を伴う。** 復旧後はデータの件数を実際に数えて
+欠落が無いことを確認する。
+
+なお**プロジェクトが停止していても Supabase のログは読める。** 停止時刻や
+keep-alive の発火は停止中でも確認できる（`CLAUDE.md` の該当項を参照）。
 
 ### 自動レビューが止まらない
 

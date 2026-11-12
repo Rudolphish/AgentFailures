@@ -90,8 +90,10 @@ Workers の Cron から、運用しているサービスの `/health` を順に�
 
 **根拠**: 現在 gamers-highlight（Vercel）、AgentFailures（Workers）、
 Supabase 2 プロジェクトを運用しているが、停止に気づく手段があるのは
-AgentFailures のみである。Supabase の無料プランは 7 日間アクセスが無いと
-自動停止するが、対策しているのは片方だけである。
+AgentFailures のみである。**しかもその AgentFailures の Supabase は実際に
+2 回停止し（2026-10-29 / 11-11）、いずれも人が使おうとして初めて気づいた。**
+判定基準は活動量であり、keep-alive では回避できない。**止まることを前提に、
+気づく手段を用意する必要がある。**
 
 **規模**: 通知先（Discord）は既にあるため、1 ファイルで済む見込み。
 
