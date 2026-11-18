@@ -108,12 +108,15 @@ SQL Editor に貼り付けて実行する。
 
 ### 3. シークレットの設定
 
-`.env.example` に必要な環境変数を記載している。値は以下から取得する。
+> **2026-11-18 に D1 へ移行した。** シークレットは `MCP_AUTH_TOKEN` の 1 つだけになった。
+> ストアへの接続情報は秘密ではなく、`wrangler.jsonc` の `d1_databases`（binding 名 `DB`）
+> で宣言している。この節より上の Supabase の手順は**まだ書き換えていない**
+> （移行計画 §8 の段階 10）。新規に構築する場合は読み飛ばすこと。
+
+`.env.example` に必要な環境変数を記載している。
 
 | 変数 | 取得元 |
 | --- | --- |
-| `SUPABASE_URL` | Supabase ダッシュボード → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | 同上。RLS をバイパスするため厳重に扱う |
 | `MCP_AUTH_TOKEN` | 任意の乱数。`openssl rand -base64 48` などで生成する |
 
 ローカル開発では `.dev.vars` に配置する。
@@ -123,11 +126,15 @@ cp .env.example .dev.vars
 # .dev.vars を編集して値を設定する
 ```
 
+ファイルを作らずに渡すこともできる（秘密を書き出さずに済む）。
+
+```bash
+npx wrangler dev --var MCP_AUTH_TOKEN:<任意の値>
+```
+
 本番環境では wrangler のシークレットとして登録する。
 
 ```bash
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put MCP_AUTH_TOKEN
 ```
 
