@@ -481,15 +481,54 @@ planner が索引を捨て、`SCAN failures` + `USE TEMP B-TREE FOR ORDER BY` �
 | 段階 | やること | 完了の判定 |
 | --- | --- | --- |
 | 0 | §5 の検証 | **実施済み（2026-11-13）。** 9 項目中 7 件 PASS、2 件は後続の段階で確認する（6: export、9: `search_log`） |
-| 1 | D1 データベースを作る（`wrangler d1 create`）。`wrangler.jsonc` に binding を宣言 | `wrangler d1 info` が引ける |
-| 2 | スキーマのマイグレーションを書き、`--remote` へ適用（`failures` のみ。`search_log` は第 2 段） | `PRAGMA table_xinfo("failures")` が生成列を含む全列を返す |
-| 3 | Supabase から全行を取り出し、`INSERT` 文へ変換（**経路は下記**） | **行数が一致する。** 変換結果を目で 1 件読む |
-| 4 | `wrangler d1 execute --remote --file=dump.sql` で取り込む | **件数を数えて一致を確認する。** 加えて下記の 4 種の文字を含む行を実際に引いて照合する |
+| 1 | D1 データベースを作る。`wrangler.jsonc` に binding を宣言 | **実施済み（2026-11-13）。** `agent-failures`（APAC）。binding は `DB`、`migrations_dir` は `d1/migrations` |
+| 2 | スキーマのマイグレーションを書き、適用（`failures` のみ。`search_log` は第 2 段） | **実施済み。** `d1/migrations/0001_create_failures.sql`。`PRAGMA table_xinfo("failures")` が生成列を含む 11 列を返し、索引 2 本と `keepalive_log` も作られた |
+| 3 | Supabase から全行を取り出し、`INSERT` 文へ変換（**経路は下記**） | **実施済み** |
+| 4 | 取り込む | **実施済み（2026-11-18）。** 135 行。下記の指紋照合で一致 |
 | 5 | `store.ts` / `env.ts` を書き換え、`npm run typecheck` | 型が通る（**`npm ci` を先に済ませる。** コンテナを作り直すと `node_modules` が消える） |
 | 6 | `wrangler dev` で `search_failures` / `record_failure` を通す | README の疎通確認 curl が通る。**日本語の往復で文字列が一致する** |
 | 7 | デプロイし、**デプロイ先で**同じ curl を流す | 同上。`fetch` ハンドラが async であることは既存のまま |
 
-### 段階 3 の経路と、文字の扱い
+### 実際に通った経路（2026-11-13〜18）
+
+**`wrangler` も `--file` も使わなかった。** Cloudflare コネクタの `d1_database_query`
+へ SQL を直接渡す形で、段階 1〜4 をすべて実施した。
+
+1. **Postgres 側で SQLite 用の `INSERT ... VALUES (...)` を生成する。**
+   `quote_literal` は使わず、`replace(x, '''', '''''')` で単引用符を二重化するだけにした。
+   `to_json(tags)::text` で JSON 配列、`case when cause_is_assumption then '1' else '0' end`
+   で 0/1、時刻は `to_char(..., 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')` で ISO 8601 にした
+2. 生成された文字列を `d1_database_query` へ渡す。20 行ずつ 7 回に分けた
+
+**コネクタの制約が 2 件とも実際に効いた。** `params` が文字列しか取れないため
+`workaround` が NULL の行はリテラル `NULL` で書く必要があり（§0）、
+**compound SELECT は 10 項で `too many terms in compound SELECT` になる**（5 項は通る）。
+
+### 照合は文字数ではなく符号位置の総和で行う
+
+**最初は「各項目の文字数の合計」で照合していた。これでは不十分だった。**
+
+転記の途中で `『Pages』` を `「Pages」` と書き換えてしまったが、**どちらも 1 文字なので
+長さが変わらず、文字数の照合は一致したまま通った**（当該行はどちらも 227 文字）。
+
+そこで照合を**符号位置（コードポイント）の総和**に変えた。両側とも再帰 CTE で
+1 文字ずつ `unicode()` / `ascii()` を足し合わせる。文字の置き換えでも値が変わる。
+
+| 照合項目 | Supabase | D1 |
+| --- | --- | --- |
+| 行数 / `id` の重複なし | 135 / 135 | 135 / 135 |
+| 本文の符号位置の総和 | 874,757,267 | 874,757,267 |
+| 本文の文字数 | 106,664 | 106,664 |
+| `id` + `created_at` の総和 | 498,525 | 498,525 |
+| `cause_is_assumption` の合計 | 33 | 33 |
+| `workaround` が NULL の行 | 0 | 0 |
+
+20 行ごとのチャンク別でも全 7 区分が一致している。
+
+**「長さの一致は内容の一致ではない」。** 同じ文字数の別の文字へ置き換わる誤りは、
+文字数の照合では原理的に検出できない。
+
+### 段階 3 の当初計画と、文字の扱い
 
 **Postgres の `quote_literal` / `format('%L')` の出力をそのまま SQLite へ
 流さないこと。** Postgres はバックスラッシュを含む文字列を `E'...'` 形式で

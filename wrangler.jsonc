@@ -28,5 +28,15 @@
   // 意図した曜日になっているか（ダッシュボードの Trigger Events の文章表示）である。
   "triggers": {
     "crons": ["0 3 * * 1,4"]
-  }
+  },
+  // 失敗談ストア本体。Supabase から移行した（docs/d1-migration-plan.md）。
+  // database_id は識別子であり、秘密情報ではない。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-failures",
+      "database_id": "850a8116-510c-44f2-b515-bb6fa5597f9e"
+    }
+  ],
+  "migrations_dir": "d1/migrations"
 }
