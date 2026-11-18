@@ -130,6 +130,50 @@ Cloudflare の error code 1016 になる。**この状態でも `query_logs`（�
 復旧は point-in-time recovery を伴う（`selected new timeline ID` が出る）。
 復旧後はデータの件数を実際に数えて欠落が無いことを確認すること。
 
+### wrangler.jsonc の `migrations_dir` は `d1_databases[]` の中に書く
+
+トップレベルに書くと**警告 1 行だけで無視される。**
+
+```
+- Unexpected fields found in top-level field: "migrations_dir"
+✘ No migrations present at /home/user/AgentFailures/migrations.
+```
+
+同梱の `node_modules/wrangler/config-schema.json` では、`migrations_dir` は
+`d1_databases` の **items のプロパティ**にしか定義が無い（`RawConfig` /
+`RawEnvironment` / `PreviewsConfig` の 3 箇所とも同じ）。トップレベルの定義は存在しない。
+2026-11-18 に実際にトップレベルへ書いて踏んだ。**設定した側の表示は警告だけで、
+既定の `./migrations` を見に行くため、マイグレーションが「無い」ことになる。**
+
+`wrangler.jsonc` を変えたら、**読む側の道具を実際に走らせて確かめること。**
+ネットワークが要らない確認手段がある。
+
+```bash
+node_modules/.bin/wrangler d1 migrations list agent-failures --local
+```
+
+意図した `.sql` が一覧に出れば効いている。出なければ置き場所を疑う。
+
+### コネクタで DDL を流したら、d1_migrations にも記録する
+
+D1 のスキーマをコネクタの `d1_database_query` で適用すると、**wrangler 側の
+適用台帳には何も残らない。** そのまま `wrangler d1 migrations apply --remote` を
+流すと同じマイグレーションを再実行し、`table failures already exists` で落ちる。
+
+台帳は wrangler が自分で作るテーブルである。
+
+```sql
+CREATE TABLE "d1_migrations"(
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT UNIQUE,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+)
+```
+
+`INSERT INTO d1_migrations (name) VALUES ('<ファイル名>.sql')` で適用済みにできる
+（`applied_at` は既定値に任せる）。2026-11-18 に `0001_create_failures.sql` を
+この形で記録した。**以後はスキーマ変更に `wrangler d1 migrations apply` を使う。**
+
 ### 日本語の全文検索に tsvector は使えない
 
 PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simple` 設定では

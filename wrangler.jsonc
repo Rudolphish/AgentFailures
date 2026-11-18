@@ -35,8 +35,11 @@
     {
       "binding": "DB",
       "database_name": "agent-failures",
-      "database_id": "850a8116-510c-44f2-b515-bb6fa5597f9e"
+      "database_id": "850a8116-510c-44f2-b515-bb6fa5597f9e",
+      // migrations_dir は d1_databases の各要素の中にしか無い設定である。
+      // トップレベルに書くと "Unexpected fields found in top-level field" の
+      // 警告 1 行だけが出て無視され、既定の ./migrations を見に行く。
+      "migrations_dir": "d1/migrations"
     }
-  ],
-  "migrations_dir": "d1/migrations"
+  ]
 }

@@ -481,7 +481,7 @@ planner が索引を捨て、`SCAN failures` + `USE TEMP B-TREE FOR ORDER BY` �
 | 段階 | やること | 完了の判定 |
 | --- | --- | --- |
 | 0 | §5 の検証 | **実施済み（2026-11-13）。** 9 項目中 7 件 PASS、2 件は後続の段階で確認する（6: export、9: `search_log`） |
-| 1 | D1 データベースを作る。`wrangler.jsonc` に binding を宣言 | **実施済み（2026-11-13）。** `agent-failures`（APAC）。binding は `DB`、`migrations_dir` は `d1/migrations` |
+| 1 | D1 データベースを作る。`wrangler.jsonc` に binding を宣言 | **実施済み（2026-11-13）。** `agent-failures`（APAC）。binding は `DB`、`migrations_dir` は **`d1_databases[0]` の中に**置く（下記） |
 | 2 | スキーマのマイグレーションを書き、適用（`failures` のみ。`search_log` は第 2 段） | **実施済み。** `d1/migrations/0001_create_failures.sql`。`PRAGMA table_xinfo("failures")` が生成列を含む 11 列を返し、索引 2 本と `keepalive_log` も作られた |
 | 3 | Supabase から全行を取り出し、`INSERT` 文へ変換（**経路は下記**） | **実施済み** |
 | 4 | 取り込む | **実施済み（2026-11-18）。** 135 行。下記の指紋照合で一致 |
@@ -527,6 +527,49 @@ planner が索引を捨て、`SCAN failures` + `USE TEMP B-TREE FOR ORDER BY` �
 
 **「長さの一致は内容の一致ではない」。** 同じ文字数の別の文字へ置き換わる誤りは、
 文字数の照合では原理的に検出できない。
+
+### `migrations_dir` はトップレベルに書いても効かない
+
+最初トップレベルへ書いたが、**同梱の `node_modules/wrangler/config-schema.json` では
+`migrations_dir` は `d1_databases[]` の各要素のプロパティにしか定義が無い**
+（`RawConfig` / `RawEnvironment` / `PreviewsConfig` の 3 箇所とも同じ）。
+トップレベルの定義は存在しない。
+
+実際に `wrangler d1 migrations list agent-failures --local` を流すと、こうなった。
+
+```
+- Unexpected fields found in top-level field: "migrations_dir"
+▲ No migrations folder found. Set `migrations_dir` in your wrangler.jsonc file ...
+✘ No migrations present at /home/user/AgentFailures/migrations.
+```
+
+**警告 1 行だけで無視され、既定の `./migrations` を見に行く。**
+`d1_databases[0]` の中へ移したところ、`0001_create_failures.sql` を認識した。
+
+### wrangler の適用台帳（`d1_migrations`）を手で合わせる
+
+段階 1〜4 はコネクタの `d1_database_query` で実施したため、
+**wrangler 側には「0001 を適用した」記録が残らない。** そのままだと次に
+`wrangler d1 migrations apply --remote` を流したとき 0001 を再実行し、
+`table failures already exists` で落ちる。
+
+台帳の実体はローカルへ適用して確認した。
+
+```sql
+CREATE TABLE "d1_migrations"(
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT UNIQUE,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+)
+```
+
+同じものをリモートにも作り、`INSERT INTO d1_migrations (name) VALUES
+('0001_create_failures.sql')` で適用済みとして記録した（2026-11-18）。
+`applied_at` は既定値に任せると `YYYY-MM-DD HH:MM:SS` のテキストになり、
+ローカルで wrangler 自身が入れた行と同じ形になる。
+
+**今後、スキーマを変えるときは `wrangler d1 migrations apply` を使う。**
+コネクタで DDL を流すなら、台帳への記録も同じ回に行う。
 
 ### 段階 3 の当初計画と、文字の扱い
 
