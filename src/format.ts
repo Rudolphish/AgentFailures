@@ -2,6 +2,16 @@ import { SEARCH_LIMIT_MAX, type FailureRecord } from './schema.js';
 import { QUERY_TERMS_MAX, type SearchResult } from './store.js';
 
 /**
+ * 並び順の説明。
+ *
+ * **「新しい順」ではなくなった。** 2026-11-20 まで `created_at` の降順のみで
+ * 並べていたため、1 語で 11 件一致する `キャッシュ` に対して返るのは新しい
+ * 3 件であり、その語が 7 回出てくる記録（2026-09 の 2 件）は出なかった。
+ */
+const ORDER_NOTE =
+  '並びは関連度の降順（一致した語数 → 語の出現回数）で、同じ関連度なら新しい順である。';
+
+/**
  * 見出しに載せる文字数。
  *
  * 見出しは「自分の問題と同じか」を判断するためのものである。
@@ -104,7 +114,7 @@ function renderRecord(
  * detail が 'full' の場合は切り詰めを行わない。
  */
 export function formatSearchResult(result: SearchResult, detail: 'summary' | 'full'): string {
-  const { records, terms, droppedTerms } = result;
+  const { records, terms, droppedTerms, matchedCount, combine } = result;
 
   // 語数の上限で捨てた語は必ず書く。黙って捨てると、エージェントは絞り込んだ
   // つもりのまま別の条件の結果を読むことになる。
@@ -119,16 +129,19 @@ export function formatSearchResult(result: SearchResult, detail: 'summary' | 'fu
     // 「記録が無い」と読ませないこと。実際には「与えた条件に一致する記録が無い」
     // でしかない。domain は完全一致であり、query は語ごとの AND であるため、
     // 条件の書き方しだいで記録があっても 0 件になる。
+    //
+    // ここへ来た時点で AND も OR も 0 件である（OR への落とし込みは store 側で
+    // 済んでいる）。語を減らしても当たらないことまで言い切れる。
     const how =
       terms.length <= 1
-        ? 'query は語ごとの AND で判定する。'
-        : `query は語ごとの AND で判定する。今回は ${terms.length} 語（${terms.join(' / ')}）すべてを含む記録だけが一致する。`;
+        ? 'query は語ごとの部分一致で判定します。'
+        : `query は語ごとの AND で判定し、0 件だったため OR でも引きましたが、${terms.length} 語（${terms.join(' / ')}）のどれ 1 つも含む記録がありませんでした。`;
     return [
       dropped,
       '条件に一致する失敗談はありません。',
       '記録が存在しないとは限りません。domain は完全一致で判定するため、値が違うと 0 件になります。',
       how,
-      '0 件だった場合は、domain を省く、query の語を減らす、といった形で条件を緩めて引き直してください。',
+      '0 件だった場合は、domain や environment を省く、語を言い換える、といった形で条件を緩めて引き直してください。',
     ].join('');
   }
 
@@ -137,15 +150,34 @@ export function formatSearchResult(result: SearchResult, detail: 'summary' | 'fu
   );
   const anyTruncated = rendered.some((r) => r.truncated);
 
-  // **「該当 N 件」とは書かない。** records は limit で切った後の配列であり、
-  // 一致した総数ではない。総数として読まれると「これで全部だ」と誤解され、
-  // limit を上げる判断ができなくなる。一致総数の取得は未実装（移行計画 §4）。
+  // **一致総数と返却件数を必ず書き分ける。** records は limit で切った後の
+  // 配列であり、これを一致数として読まれると「これで全部だ」と誤解され、
+  // limit を上げる判断ができなくなる。
+  const hidden = matchedCount - records.length;
+  const more =
+    hidden > 0
+      ? `残り ${hidden} 件は limit で切ってある。続きが必要なら limit を上げること（上限 ${SEARCH_LIMIT_MAX} 件）。`
+      : '';
+
+  // OR へ落ちたことは必ず書く。黙って広げると、エージェントは全語を含む記録が
+  // 見つかったものとして結果を読む。
+  const fallback =
+    combine === 'or'
+      ? `**${terms.length} 語すべてを含む記録は 0 件だったため、いずれかの語を含む記録（OR）へ広げた。** 全語を含む結果ではない。`
+      : '';
+
+  const how =
+    combine === 'and' && terms.length > 1
+      ? `query は語ごとの AND で判定した（${terms.join(' / ')}）。`
+      : '';
+
   const header = [
     dropped,
-    `${records.length} 件を表示（新しい順）。`,
-    'これは返却した件数であり、一致した総数ではない。',
-    `上限に達している場合は limit を上げると続きが得られる（上限 ${SEARCH_LIMIT_MAX} 件）。`,
-    terms.length <= 1 ? '' : `query は語ごとの AND で判定した（${terms.join(' / ')}）。`,
+    fallback,
+    `一致 ${matchedCount} 件中 ${records.length} 件を表示。`,
+    more,
+    how,
+    ORDER_NOTE,
     '見出しは「何が起きたか ← 原因」である。',
     '「（推定）」が付く場合、原因は未確認の推定である。',
   ].join('');

@@ -118,82 +118,217 @@ export function splitQueryTerms(query: string): { terms: string[]; dropped: numb
 /**
  * 検索の結果。
  *
- * 件数だけでなく**どう解釈して引いたか**を返す。`query` の分割は呼び出し側から
- * 見えないため、これを返さないと応答に判定方法を書けない。
+ * 件数だけでなく**どう解釈して引いたか**を返す。`query` の分割・結合方法・
+ * 一致総数は呼び出し側から見えないため、これを返さないと応答に書けない。
  */
 export interface SearchResult {
   records: FailureRecord[];
-  /** `query` を分割して実際に `AND` で使った語。`query` 未指定なら空配列。 */
+  /** `query` を分割して実際に使った語。`query` 未指定なら空配列。 */
   terms: string[];
   /** 上限 `QUERY_TERMS_MAX` を超えて使わなかった語の数。 */
   droppedTerms: number;
+  /**
+   * 条件に一致した総数。**`limit` で切る前の数である。**
+   *
+   * `records.length` を一致数として読ませないために別に持つ。
+   * 10 件一致して 3 件返したとき、`records.length` だけでは「3 件しかない」と
+   * 読まれ、`limit` を上げる理由が与えられない。
+   */
+  matchedCount: number;
+  /**
+   * 語の結合方法。
+   *
+   * `and` が既定。**`and` が 0 件で語が 2 つ以上あるときだけ `or` へ落とす。**
+   * `none` は `query` を与えられなかった場合（語がないため結合も無い）。
+   */
+  combine: 'and' | 'or' | 'none';
+}
+
+/** 組み立てた WHERE / ORDER BY と、その順に対応するバインド値。 */
+interface BuiltQuery {
+  where: string;
+  whereBindings: string[];
+  order: string;
+  orderBindings: string[];
 }
 
 /**
- * 失敗談を新しい順に検索する。返却件数は必ず上限以下になる。
+ * 条件と並び順を組み立てる。
+ *
+ * **バインド値は SQL 本文に `?` が現れる順でなければならない。** そのため
+ * WHERE と ORDER BY の値を別に持ち、呼び出し側で WHERE → ORDER BY → LIMIT の
+ * 順に連結する。1 本の配列へ混ぜて積むと、並び順の式を足したとたんに
+ * 条件側とずれる。
+ *
+ * 並び順は 3 段で、**上から順に効く**。
+ *
+ * 1. **一致語数の降順**（`or` のときのみ）。`and` では返る行がすべて全語一致
+ *    であるため、この段は定数になり並びを変えない。だから付けない
+ * 2. **出現回数の合計の降順。** `キャッシュ` の 1 語で 11 件一致する実データで、
+ *    出現回数は 1〜7 回に分かれる。`created_at` だけで並べると出現 7 回の
+ *    2 件（いずれも 2026-09 の記録）は既定 limit 3 に入らず、永久に出ない。
+ *    **1 語のクエリで効くのはこの段だけである**（一致語数は全行 1 になる）
+ * 3. **`created_at` の降順。** 「新しい順に返る」という既存の約束を、
+ *    関連度が同じ場合の並びとして残す
+ *
+ * 出現回数は `lower()` を通して数える。**SQLite の `LIKE` は ASCII について
+ * 大文字小文字を無視するが、`replace()` は区別する。** 通さないと `Cron` で
+ * 引いたときに条件は一致するのに出現回数が 0 になり、並びが壊れる。
+ * `lower()` が畳むのは ASCII のみだが、取り違えが起きるのも ASCII だけである。
+ */
+function buildQuery(
+  input: SearchFailuresInput,
+  terms: string[],
+  combine: 'and' | 'or' | 'none',
+): BuiltQuery {
+  const whereBindings: string[] = [];
+  const orderBindings: string[] = [];
+
+  // domain / environment は語の結合方法によらず常に AND で絞る。
+  // 「nextjs の中から探す」という指定を or で緩めてはいけない。
+  const filters: string[] = [];
+  if (input.domain !== undefined) {
+    filters.push('domain = ?');
+    whereBindings.push(input.domain);
+  }
+  if (input.environment !== undefined) {
+    filters.push("environment LIKE ? ESCAPE '\\'");
+    whereBindings.push(likePattern(input.environment));
+  }
+
+  const termConditions = terms.map((term) => {
+    whereBindings.push(likePattern(term));
+    return "search_text LIKE ? ESCAPE '\\'";
+  });
+
+  if (termConditions.length > 0) {
+    // or のときは語の条件を括って 1 つの要素として扱う。括らないと
+    // `domain = ? AND t1 OR t2` と解釈され、domain の絞り込みが外れる。
+    filters.push(
+      combine === 'or' ? `(${termConditions.join(' OR ')})` : termConditions.join(' AND '),
+    );
+  }
+
+  const where = filters.length === 0 ? '' : `WHERE ${filters.join(' AND ')}`;
+
+  const orderKeys: string[] = [];
+
+  if (combine === 'or' && terms.length > 1) {
+    const matched = terms.map((term) => {
+      orderBindings.push(likePattern(term));
+      return "(search_text LIKE ? ESCAPE '\\')";
+    });
+    orderKeys.push(`(${matched.join(' + ')}) DESC`);
+  }
+
+  if (terms.length > 0) {
+    const occurrences = terms.map((term) => {
+      // raw な語を 2 回。**likePattern を通してはいけない。**
+      // `\` を足した文字列は replace() では一致しない。
+      orderBindings.push(term, term);
+      return "((length(lower(search_text)) - length(replace(lower(search_text), lower(?), ''))) / length(?))";
+    });
+    orderKeys.push(`(${occurrences.join(' + ')}) DESC`);
+  }
+
+  orderKeys.push('created_at DESC');
+
+  return { where, whereBindings, order: `ORDER BY ${orderKeys.join(', ')}`, orderBindings };
+}
+
+/**
+ * 1 つの結合方法で、一致総数と行を 1 往復で取る。
+ *
+ * `batch()` は 1 回のリクエストで複数の文を流せる。件数のために往復を
+ * 増やさないためにこれを使う。
+ */
+async function runSearch(
+  store: Store,
+  input: SearchFailuresInput,
+  terms: string[],
+  combine: 'and' | 'or' | 'none',
+  limit: number,
+): Promise<{ rows: FailureRow[]; matchedCount: number }> {
+  const built = buildQuery(input, terms, combine);
+
+  const countStatement = store
+    .prepare(`SELECT count(*) AS n FROM failures ${built.where}`)
+    .bind(...built.whereBindings);
+
+  const rowsStatement = store
+    .prepare(
+      `SELECT ${COLUMNS}
+         FROM failures
+        ${built.where}
+        ${built.order}
+        LIMIT ?`,
+    )
+    .bind(...built.whereBindings, ...built.orderBindings, limit);
+
+  try {
+    const [countResult, rowsResult] = await store.batch<Record<string, unknown>>([
+      countStatement,
+      rowsStatement,
+    ]);
+    const n = countResult?.results?.[0]?.['n'];
+    if (typeof n !== 'number') {
+      throw new Error('一致総数を数値として読み出せませんでした。');
+    }
+    return { rows: (rowsResult?.results ?? []) as unknown as FailureRow[], matchedCount: n };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`失敗談の検索に失敗しました: ${message}`);
+  }
+}
+
+/**
+ * 失敗談を検索する。返却件数は必ず上限以下になる。
  *
  * `query` は**空白で語へ分割し、語ごとの `AND`** で判定する。連結文字列への
  * 1 回の部分一致ではない。したがって語の並び順と隣接は問わない。
  * 変更前は `cron 曜日` のような複数語が原理的に 0 件になっていた。
  *
+ * **`AND` が 0 件で語が 2 つ以上あるときだけ `OR` へ落とす。** 絞りすぎと
+ * 広すぎの双方を避けるためである。`OR` を既定にすると、実データで
+ * `キャッシュ 古い` が 22 件（全体の 16%）一致し、既定 limit 3 では
+ * ほとんど絞り込めていない結果が返る。
+ *
+ * 並び順は `buildQuery` を参照。**「新しい順」だけではなくなった。**
+ *
  * 索引は `created_at` と `domain` にのみ張ってある。`environment` と
  * `search_text` は部分一致のため索引が効かず、全表走査になる。
  * 134 行での実測は 1 検索あたり最大 263 行読みであり、無料枠に対して桁が余る。
+ * 一致総数のための `count(*)` は `batch()` で同じ往復に載せている。
  */
 export async function searchFailures(
   store: Store,
   input: SearchFailuresInput,
 ): Promise<SearchResult> {
   const limit = Math.min(input.limit ?? SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX);
-  const { terms, dropped } = input.query === undefined
-    ? { terms: [] as string[], dropped: 0 }
-    : splitQueryTerms(input.query);
+  const { terms, dropped } =
+    input.query === undefined
+      ? { terms: [] as string[], dropped: 0 }
+      : splitQueryTerms(input.query);
 
-  // 条件は指定されたものだけを並べる。未指定の列を `?N IS NULL OR ...` で
-  // 無効化する書き方はやめた。語数が可変になり番号付けが合わないうえ、
-  // 条件を書かなければ `domain` の索引がそのまま使える。
-  const conditions: string[] = [];
-  const bindings: (string | number)[] = [];
+  const first = terms.length === 0 ? 'none' : 'and';
+  let combine: 'and' | 'or' | 'none' = first;
+  let { rows, matchedCount } = await runSearch(store, input, terms, first, limit);
 
-  if (input.domain !== undefined) {
-    conditions.push('domain = ?');
-    bindings.push(input.domain);
-  }
-  if (input.environment !== undefined) {
-    conditions.push("environment LIKE ? ESCAPE '\\'");
-    bindings.push(likePattern(input.environment));
-  }
-  // 語ごとに 1 条件。語の並び順も隣接も問わないため、`cron 曜日` と
-  // `曜日 cron` は同じ結果になる。
-  for (const term of terms) {
-    conditions.push("search_text LIKE ? ESCAPE '\\'");
-    bindings.push(likePattern(term));
-  }
-
-  const where = conditions.length === 0 ? '' : `WHERE ${conditions.join(' AND ')}`;
-  bindings.push(limit);
-
-  const statement = store
-    .prepare(
-      `SELECT ${COLUMNS}
-         FROM failures
-        ${where}
-        ORDER BY created_at DESC
-        LIMIT ?`,
-    )
-    .bind(...bindings);
-
-  let rows: FailureRow[];
-  try {
-    const result = await statement.all<FailureRow>();
-    rows = result.results;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`失敗談の検索に失敗しました: ${message}`);
+  // AND で 0 件、かつ語が 2 つ以上あるときだけ OR へ落とす。
+  // 語が 1 つなら OR は AND と同じ結果になるため、往復を増やす意味が無い。
+  if (matchedCount === 0 && terms.length > 1) {
+    combine = 'or';
+    ({ rows, matchedCount } = await runSearch(store, input, terms, 'or', limit));
   }
 
   // 上限超過を返さないことは要件であるため、SQL の LIMIT に加えてここでも切り詰める。
-  return { records: rows.slice(0, limit).map(toRecord), terms, droppedTerms: dropped };
+  return {
+    records: rows.slice(0, limit).map(toRecord),
+    terms,
+    droppedTerms: dropped,
+    matchedCount,
+    combine,
+  };
 }
 
 /**
