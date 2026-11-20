@@ -6,8 +6,8 @@
 
 `domain` と `tags` の使い分けは [`taxonomy.md`](./taxonomy.md) に定めている。
 `domain` は完全一致で検索するため、表記が揺れると絞り込みが機能しなくなる。
-語彙の正本は [`../src/schema.ts`](../src/schema.ts) の `KNOWN_DOMAINS` にあり、
-ツールの説明文を通じて記録するエージェントへ伝わる。下記の断片はその補強である。
+**`domain` の値に固定の一覧は持たない**（理由は `taxonomy.md`）。
+規約はツールの説明文を通じて記録するエージェントへ伝わる。下記の断片はその補強である。
 
 ---
 
@@ -23,10 +23,12 @@ MCP サーバー `agent-failures` が利用できる。過去に踏んだ失敗�
 - `observed` には観測された事実（エラーメッセージ、終了コード等）のみを書く。
   解釈や推測は `cause` に書き、確認が取れていない場合は
   `cause_is_assumption` を `true` にする。
-- `domain` には**技術**を入れる。現在の語彙は
-  `nextjs` / `cloudflare-workers` / `supabase` / `github-actions` /
-  `claude-code` / `windows-powershell` / `discord-api`。
+- `domain` には**技術**を入れる。値は 30 種類以上あり固定の一覧は無いので、
+  **記録の前に `search_failures` を引き、同種の記録の `domain` に合わせる**。
+  件数上位の例: `claude-code` / `nextjs` / `github-actions`。
   `notification-design` のような話題の名称は使わない。
+- 検索で `domain` を指定するときは注意する。**完全一致なので、存在しない値を
+  渡すと記録があっても 0 件になる。** 値が不確かなら `domain` を省いて `query` で引く。
 - `tags` には (1) 失敗の性質（`silent-failure` / `security` / `data-loss` /
   `encoding` / `quota` など）を最低1つ、(2) 話題や設計パターン、
   (3) `domain` 以外の関連技術、を入れる。

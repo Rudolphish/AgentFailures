@@ -8,10 +8,19 @@ AgentFailures — AI エージェントが失敗談を蓄積・参照するた�
 
 ## 構成
 
-- ストア: Supabase (PostgreSQL)
+- ストア: **Cloudflare D1 (SQLite)**。binding 名は `DB`
 - MCP サーバー: TypeScript / Cloudflare Workers / Streamable HTTP
 - SDK: `@modelcontextprotocol/sdk`
-- デプロイ: wrangler
+- デプロイ: main への push で GitHub Actions が自動実行する（`/health` の確認まで行う）
+
+**2026-11-20 に Supabase から D1 へ移行した。** 経緯は
+[`docs/d1-migration-plan.md`](docs/d1-migration-plan.md)。
+
+- **コネクタ `AgentFailures_DB` は移行前の Supabase であり、正本ではない。**
+  退避先として 30 日は残すが、ここを読んでも現在のデータは分からない。
+  本番のデータは Cloudflare コネクタの `d1_database_query` で `agent-failures` を引く
+- `src/schema.ts` の domain に `supabase` が残っているのは正しい。
+  あれは**失敗談の分類値**であり、ストアの保存先とは無関係である
 
 ## コマンド
 
@@ -78,20 +87,6 @@ Cloudflare が返すのは 1101 のエラーページのみで、原因を示す
 ログにも応答にも一切残らない。捕捉して `console.error` へ出せば
 `wrangler tail` で内容を確認できる。
 
-### 生成列から呼ぶ関数は immutable でなければならない
-
-`concat_ws` と `array_to_string` は型出力関数を経由する都合で PostgreSQL 上
-`stable` 扱いであり、生成列の式に直接書くと `CREATE TABLE` が失敗する。
-`public.failures_search_text(...)` という `immutable` 宣言のラッパー関数を挟んで
-回避している。この宣言を外すとマイグレーションが通らなくなる。
-
-### PostgREST の ilike はパターン文字を解釈する
-
-`store.ts` の `escapeLikePattern` で `\` `%` `_` をエスケープしている。
-加えて PostgREST は `ilike` の値に含まれる `*` を `%` として扱うため、
-これはエスケープではなく空白へ置換している（`*` を打ち消す手段が無いため）。
-ユーザー入力をそのまま `ilike` に渡さないこと。
-
 ### Cron の曜日は 1 始まりで、1 が日曜である
 
 `wrangler.jsonc` の `0 3 * * 1,4` は**日曜と水曜**であり、月曜と木曜ではない。
@@ -109,26 +104,6 @@ Cloudflare の cron パーサ（`cloudflare/saffron`）は曜日を 1 始まり�
 なお同リポジトリの `saffron/src/lib.rs` にある `byte_to_weekday` は
 `0 => Sun` と書かれているが、これはパース後に -1 された内部表現であり、
 入力の番号付けではない。ここを入力側と取り違えて誤った結論を出した。
-
-### 停止中でも Supabase のログは読める
-
-プロジェクトが停止すると `execute_sql` は
-`Database is possibly not accessible at the moment` を返し、Worker 経由は
-Cloudflare の error code 1016 になる。**この状態でも `query_logs`（ログ参照）は
-使える。** 停止前後の記録を読めるため、復旧を待たずに切り分けられる。
-
-- `edge_logs` — keep-alive の `POST | 201 | /rest/v1/keepalive_log` と応答コード。
-  **keep-alive が発火したかどうかはここで分かる。** `keepalive_log` を読めなくてよい
-- `postgres_logs` — `database system was interrupted; last known up at ...` に
-  停止時刻が出る。`checkpoint starting: immediate force wait` と
-  `restore point ... created` の並びが停止操作の直前に現れる
-
-**最終書き込み時刻と停止時刻の差を必ず確認すること。** keep-alive を入れてあると
-「無アクセスで停止した」と決めつけがちだが、2026-10-29 の停止は最終書き込みの
-26 時間 36 分後であり、無アクセスでは説明できなかった。
-
-復旧は point-in-time recovery を伴う（`selected new timeline ID` が出る）。
-復旧後はデータの件数を実際に数えて欠落が無いことを確認すること。
 
 ### wrangler.jsonc の `migrations_dir` は `d1_databases[]` の中に書く
 
@@ -174,6 +149,47 @@ CREATE TABLE "d1_migrations"(
 （`applied_at` は既定値に任せる）。2026-11-18 に `0001_create_failures.sql` を
 この形で記録した。**以後はスキーマ変更に `wrangler d1 migrations apply` を使う。**
 
+## Supabase を使っていた時期（2026-09〜2026-11）の落とし穴
+
+**以下は現在のコードには当てはまらない。** 2026-11-20 に D1 (SQLite) へ移行したため、
+PostgreSQL / PostgREST 固有のものは該当しなくなった。
+**誤りではなく、このリポジトリが実際に踏んだ記録であるため残す。**
+現在の罠と混ざらないよう、時期を明記してここへ分けてある。
+
+### 停止中でも Supabase のログは読める
+
+プロジェクトが停止すると `execute_sql` は
+`Database is possibly not accessible at the moment` を返し、Worker 経由は
+Cloudflare の error code 1016 になる。**この状態でも `query_logs`（ログ参照）は
+使える。** 停止前後の記録を読めるため、復旧を待たずに切り分けられる。
+
+- `edge_logs` — keep-alive の `POST | 201 | /rest/v1/keepalive_log` と応答コード。
+  **keep-alive が発火したかどうかはここで分かる。** `keepalive_log` を読めなくてよい
+- `postgres_logs` — `database system was interrupted; last known up at ...` に
+  停止時刻が出る。`checkpoint starting: immediate force wait` と
+  `restore point ... created` の並びが停止操作の直前に現れる
+
+**最終書き込み時刻と停止時刻の差を必ず確認すること。** keep-alive を入れてあると
+「無アクセスで停止した」と決めつけがちだが、2026-10-29 の停止は最終書き込みの
+26 時間 36 分後であり、無アクセスでは説明できなかった。
+
+復旧は point-in-time recovery を伴う（`selected new timeline ID` が出る）。
+復旧後はデータの件数を実際に数えて欠落が無いことを確認すること。
+
+### 生成列から呼ぶ関数は immutable でなければならない
+
+`concat_ws` と `array_to_string` は型出力関数を経由する都合で PostgreSQL 上
+`stable` 扱いであり、生成列の式に直接書くと `CREATE TABLE` が失敗する。
+`public.failures_search_text(...)` という `immutable` 宣言のラッパー関数を挟んで
+回避している。この宣言を外すとマイグレーションが通らなくなる。
+
+### PostgREST の ilike はパターン文字を解釈する
+
+`store.ts` の `escapeLikePattern` で `\` `%` `_` をエスケープしている。
+加えて PostgREST は `ilike` の値に含まれる `*` を `%` として扱うため、
+これはエスケープではなく空白へ置換している（`*` を打ち消す手段が無いため）。
+ユーザー入力をそのまま `ilike` に渡さないこと。
+
 ### 日本語の全文検索に tsvector は使えない
 
 PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simple` 設定では
@@ -183,8 +199,9 @@ PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simpl
 ## 変更時の確認
 
 - `npm run typecheck` を通す
-- スキーマを変えたら、マイグレーションを実 PostgreSQL に適用して確認する
-  （適用済みファイルの編集ではなく、新しいマイグレーションを足す）
+- スキーマを変えたら、`d1/migrations/` に**新しい**マイグレーションを足し、
+  `wrangler d1 migrations apply` で適用して確認する（適用済みファイルは編集しない）。
+  一覧に出ることを `wrangler d1 migrations list agent-failures --local` で先に確かめる
 - MCP の挙動を変えたら、README の疎通確認 curl を実際に流す
 
 ## 自動レビュー
