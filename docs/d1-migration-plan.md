@@ -5,6 +5,13 @@
 > **2026-11-20 に移行を完了した。** 第 1 段（段階 0〜7）はすべて実施済みであり、
 > 本番の MCP サーバーは D1 を読んでいる。残るのは第 2 段（検索の改修、段階 8〜10）。
 > **本書は計画書から実施記録へ役割が変わった。** 各段階に結果を書き込んである。
+>
+> **ただし `main` には D1 のコードが入っていない。** 本番へ入ったのは手動の
+> `wrangler deploy` によるものであり、`main` は移行前（`cbcbe24`）のままである。
+> GitHub Actions の Deploy は 2026-10-16（run #5）が最後で、以降走っていない。
+> **この状態で `src/**` の変更を `main` へ push すると、Actions が移行前の
+> Supabase 版をデプロイして本番を壊す。** 作業ブランチを `main` へマージする
+> ことが、この危険を解消する作業そのものである（§11 を参照）。
 
 **MCP 側の改善は [`mcp-optimization-plan.md`](mcp-optimization-plan.md) に分けてある。**
 検索の欠陥を直す改修のうちクエリの組み立てに関わるものは、SQL を書き直す
@@ -489,7 +496,7 @@ planner が索引を捨て、`SCAN failures` + `USE TEMP B-TREE FOR ORDER BY` �
 | 4 | 取り込む | **実施済み（2026-11-18）。** 135 行。下記の指紋照合で一致 |
 | 5 | `store.ts` / `env.ts` を書き換え、`npm run typecheck` | **実施済み（2026-11-18）。** 型が通る（**`npm ci` を先に済ませる。** コンテナを作り直すと `node_modules` が消える。一度 `node_modules` が無い状態で exit 0 を得て、`/opt/node22/bin/tsc` を引いていた） |
 | 6 | `wrangler dev` で `search_failures` / `record_failure` を通す | **実施済み（2026-11-18）。** 往復で全項目が一致。検索は 12 通りすべて期待どおり（うち 2 件はわざと壊した試験）。`workaround` 省略の登録も通した。認証なし・誤トークンはいずれも 401 |
-| 7 | デプロイし、**デプロイ先で**同じ curl を流す | **実施済み（2026-11-20）。** main へのマージで GitHub Actions が自動デプロイした。`/health` が `ok`、本番の `search_failures` が 3 件返した。**デプロイ版のバンドルに Supabase クライアントは含まれないため、これは D1 を読んでいる** |
+| 7 | デプロイし、**デプロイ先で**同じ curl を流す | **実施済み（2026-11-20、手動）。** 利用者が自宅の PC から `wrangler deploy` を実行した。`/health` が `ok`、本番の `search_failures` が結果を返した。デプロイ版のバンドルを読んで確かめた結果、`search_text LIKE` と `INSERT INTO keepalive_log` を含み、`ilike` と `rest/v1` を含まない。**本番は D1 を読んでいる** |
 
 ### 実際に通った経路（2026-11-13〜18）
 
