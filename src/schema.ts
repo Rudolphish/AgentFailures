@@ -10,22 +10,18 @@ export const SEARCH_LIMIT_MAX = 5;
 const requiredText = (max = 4000) => z.string().trim().min(1).max(max);
 
 /**
- * domain として使う語彙。
+ * domain の例として説明文に載せる値。
  *
- * domain は完全一致で検索するため、表記が揺れると絞り込みが機能しなくなる。
- * 記録するエージェントは既存の値を知らないので、ツールの説明文へ明示して伝える。
- * ここが語彙の正本であり、追加するには変更とデプロイを要する。
- * 手軽に増やせないことは意図した制約で、安易な新語を防ぐためのものである。
+ * **ここは語彙の正本ではない。** かつては正本のつもりで 7 個を列挙していたが、
+ * 実データには 32 種類あり（2026-11-19 時点、136 件）、列挙は現実と乖離していた。
+ * `playwright` の 7 件のように、列挙だけを見ていると到達できない値が生まれる。
+ * 手で書く一覧は風化するため、**全件の列挙はやめて件数上位のみを例として示す。**
+ *
+ * 値はデプロイ時点の実データの上位 3 件で、合計 78 件（全体の 57%）を占める。
+ * 絞り込みの正しいやり方は、列挙を覚えることではなく
+ * 「値が不確かなら domain を省いて query で引く」である（説明文に明記する）。
  */
-export const KNOWN_DOMAINS = [
-  'nextjs',
-  'cloudflare-workers',
-  'supabase',
-  'github-actions',
-  'claude-code',
-  'windows-powershell',
-  'discord-api',
-] as const;
+export const COMMON_DOMAINS = ['claude-code', 'nextjs', 'github-actions'] as const;
 
 /** tags に含めることを推奨する、失敗の性質を表す語。 */
 const TAG_NATURE_EXAMPLES = [
@@ -42,8 +38,11 @@ export const searchFailuresInputShape = {
   domain: requiredText(200)
     .optional()
     .describe(
-      `技術による絞り込み。完全一致で判定する。現在使われている値: ${KNOWN_DOMAINS.join(' / ')}。` +
-        '話題や設計パターンで絞り込みたい場合は、domain ではなく query を用いる。',
+      '技術による絞り込み。**完全一致で判定する。**' +
+        `値は 30 種類以上あり、ここに挙げるのは件数上位の例にすぎない: ${COMMON_DOMAINS.join(' / ')}。` +
+        '**値が不確かな場合は domain を省略し、query だけで検索すること。** ' +
+        '存在しない値を渡すと、該当する記録があっても 0 件になる。' +
+        '話題や設計パターンで絞り込みたい場合も、domain ではなく query を用いる。',
     ),
   environment: requiredText(500)
     .optional()
@@ -73,9 +72,10 @@ export const searchFailuresInputShape = {
 
 export const recordFailureInputShape = {
   domain: requiredText(200).describe(
-    '失敗が起きた場所の主たる技術。完全一致で検索するため、必ず次のいずれかを用いる: ' +
-      `${KNOWN_DOMAINS.join(' / ')}。` +
-      'いずれにも当てはまらない場合に限り、技術・製品の名称を小文字とハイフンで新たに作る。' +
+    '失敗が起きた場所の主たる技術。完全一致で検索するため、**表記の揺れは絞り込みを壊す。** ' +
+      '既存の値を再利用すること。確実なやり方は、記録の前に search_failures で同種の記録を引き、' +
+      `その domain に合わせることである（件数上位の例: ${COMMON_DOMAINS.join(' / ')}）。` +
+      '該当が無い場合に限り、技術・製品の名称を小文字とハイフンで新たに作る。' +
       '「notification-design」「api-cache-design」のような話題や設計パターンの名称は domain に用いない。' +
       'それらは tags へ入れること。',
   ),

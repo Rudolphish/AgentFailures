@@ -1,4 +1,4 @@
-import type { FailureRecord } from './schema.js';
+import { SEARCH_LIMIT_MAX, type FailureRecord } from './schema.js';
 
 /**
  * 見出しに載せる文字数。
@@ -104,7 +104,15 @@ function renderRecord(
  */
 export function formatSearchResult(records: FailureRecord[], detail: 'summary' | 'full'): string {
   if (records.length === 0) {
-    return '該当する失敗談はありません。';
+    // 「記録が無い」と読ませないこと。実際には「与えた条件に一致する記録が無い」
+    // でしかない。domain は完全一致であり、query は連結文字列への部分一致である
+    // ため、条件の書き方しだいで記録があっても 0 件になる。
+    return [
+      '条件に一致する失敗談はありません。',
+      '記録が存在しないとは限りません。domain は完全一致で判定するため、値が違うと 0 件になります。',
+      'query は語を連ねた文字列への部分一致で判定するため、複数の語を並べると一致しにくくなります。',
+      '0 件だった場合は、domain を省く、query を 1 語に減らす、といった形で条件を緩めて引き直してください。',
+    ].join('');
   }
 
   const rendered = records.map((record, index) =>
@@ -112,8 +120,13 @@ export function formatSearchResult(records: FailureRecord[], detail: 'summary' |
   );
   const anyTruncated = rendered.some((r) => r.truncated);
 
+  // **「該当 N 件」とは書かない。** records は limit で切った後の配列であり、
+  // 一致した総数ではない。総数として読まれると「これで全部だ」と誤解され、
+  // limit を上げる判断ができなくなる。一致総数の取得は未実装（移行計画 §4）。
   const header = [
-    `該当 ${records.length} 件（新しい順）。`,
+    `${records.length} 件を表示（新しい順）。`,
+    'これは返却した件数であり、一致した総数ではない。',
+    `上限に達している場合は limit を上げると続きが得られる（上限 ${SEARCH_LIMIT_MAX} 件）。`,
     '見出しは「何が起きたか ← 原因」である。',
     '「（推定）」が付く場合、原因は未確認の推定である。',
   ].join('');
