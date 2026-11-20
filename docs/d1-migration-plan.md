@@ -628,7 +628,7 @@ CREATE TABLE "d1_migrations"(
 | 段階 | やること | 完了の判定 |
 | --- | --- | --- |
 | 8 | `search_log` のマイグレーションを適用 | 検索 1 回で行が 1 増える（**件数の増分で確認する**） |
-| 9 | AND 分割・一致総数・一致語数の並びを入れる | [`mcp-optimization-plan.md`](mcp-optimization-plan.md) §6 の 7 項目 |
+| 9 | AND 分割・一致総数・一致語数の並びを入れる | **AND 分割は実施済み（2026-11-20）。** 残りは一致総数と一致語数の並び。判定は [`mcp-optimization-plan.md`](mcp-optimization-plan.md) §6 の 7 項目 |
 | 10 | 文書を直す（§9） | — |
 
 **段階 9 の前に、段階 7 の時点での検索結果を記録しておくこと。**

@@ -1,4 +1,5 @@
 import { SEARCH_LIMIT_MAX, type FailureRecord } from './schema.js';
+import { QUERY_TERMS_MAX, type SearchResult } from './store.js';
 
 /**
  * 見出しに載せる文字数。
@@ -102,16 +103,32 @@ function renderRecord(
  *
  * detail が 'full' の場合は切り詰めを行わない。
  */
-export function formatSearchResult(records: FailureRecord[], detail: 'summary' | 'full'): string {
+export function formatSearchResult(result: SearchResult, detail: 'summary' | 'full'): string {
+  const { records, terms, droppedTerms } = result;
+
+  // 語数の上限で捨てた語は必ず書く。黙って捨てると、エージェントは絞り込んだ
+  // つもりのまま別の条件の結果を読むことになる。
+  const dropped =
+    droppedTerms === 0
+      ? ''
+      : `query の語数が上限 ${QUERY_TERMS_MAX} を超えたため、` +
+        `先頭の ${terms.length} 語（${terms.join(' / ')}）だけを使い、` +
+        `残り ${droppedTerms} 語は無視した。`;
+
   if (records.length === 0) {
     // 「記録が無い」と読ませないこと。実際には「与えた条件に一致する記録が無い」
-    // でしかない。domain は完全一致であり、query は連結文字列への部分一致である
-    // ため、条件の書き方しだいで記録があっても 0 件になる。
+    // でしかない。domain は完全一致であり、query は語ごとの AND であるため、
+    // 条件の書き方しだいで記録があっても 0 件になる。
+    const how =
+      terms.length <= 1
+        ? 'query は語ごとの AND で判定する。'
+        : `query は語ごとの AND で判定する。今回は ${terms.length} 語（${terms.join(' / ')}）すべてを含む記録だけが一致する。`;
     return [
+      dropped,
       '条件に一致する失敗談はありません。',
       '記録が存在しないとは限りません。domain は完全一致で判定するため、値が違うと 0 件になります。',
-      'query は語を連ねた文字列への部分一致で判定するため、複数の語を並べると一致しにくくなります。',
-      '0 件だった場合は、domain を省く、query を 1 語に減らす、といった形で条件を緩めて引き直してください。',
+      how,
+      '0 件だった場合は、domain を省く、query の語を減らす、といった形で条件を緩めて引き直してください。',
     ].join('');
   }
 
@@ -124,9 +141,11 @@ export function formatSearchResult(records: FailureRecord[], detail: 'summary' |
   // 一致した総数ではない。総数として読まれると「これで全部だ」と誤解され、
   // limit を上げる判断ができなくなる。一致総数の取得は未実装（移行計画 §4）。
   const header = [
+    dropped,
     `${records.length} 件を表示（新しい順）。`,
     'これは返却した件数であり、一致した総数ではない。',
     `上限に達している場合は limit を上げると続きが得られる（上限 ${SEARCH_LIMIT_MAX} 件）。`,
+    terms.length <= 1 ? '' : `query は語ごとの AND で判定した（${terms.join(' / ')}）。`,
     '見出しは「何が起きたか ← 原因」である。',
     '「（推定）」が付く場合、原因は未確認の推定である。',
   ].join('');

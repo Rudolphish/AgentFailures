@@ -41,6 +41,16 @@
       zod の `.max(5)` と `store.ts` の `Math.min` の**二重の防御を両方**維持しているか
 - [ ] 既定件数 3 / 上限 5 の値を変えていないか
 - [ ] 結果が `created_at` の降順（新しい順）で返っているか
+- [ ] `query` を**空白（半角・全角とも）で語に分割し、語ごとの `LIKE` を `AND`**
+      で結合しているか。連結文字列への 1 回の部分一致へ戻していないか
+      （戻すと `cron 曜日` のような複数語が原理的に 0 件になる。
+      2026-11-20 まで実際にそうなっていた）
+- [ ] 分割の区切りから全角空白 (U+3000) が落ちていないか
+      （JavaScript の `\s` に含まれる。`/\s+/` を半角のみの表現へ変えていないか）
+- [ ] 語数の上限を超えた分を**黙って捨てていないか。** 捨てた語数を応答に
+      書いているか（`SearchResult.droppedTerms`）
+- [ ] 各語を `escapeLikePattern` に通しているか。`ESCAPE '\'` の指定が
+      語ごとの `LIKE` すべてに付いているか
 - [ ] `record_failure` の必須項目
       （`domain` / `environment` / `attempted` / `observed` / `cause` /
       `cause_is_assumption` / `tags`）が required から外れていないか
