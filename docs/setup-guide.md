@@ -1,5 +1,58 @@
 # セットアップ手順書
 
+> ## ⚠ 本書の大部分は Supabase 時代（2026-09〜2026-11）の手順である
+>
+> **2026-11-20 に Cloudflare D1 へ移行した。** 手順 2（Supabase の準備）と、
+> 手順 3 のうち `SUPABASE_*` を設定する部分は**もう不要である**。
+> 全面的な書き換えは行っていないため、**下の「現在の構成で新規に構築する場合」を
+> 読んでから本文へ進むこと。** 本文の Supabase の章は、当時の記録として残している。
+
+## 現在の構成で新規に構築する場合
+
+ストアは Cloudflare D1 である。Supabase のアカウントもキーも要らない。
+シークレットは `MCP_AUTH_TOKEN` の 1 つだけになった。
+
+1. **D1 を作る。**
+
+   ```bash
+   npx wrangler d1 create agent-failures
+   ```
+
+   出力された `database_id` を `wrangler.jsonc` の `d1_databases[0]` へ書く。
+   `migrations_dir` は**その要素の中**に置く（トップレベルに書くと警告 1 行で
+   無視される。`CLAUDE.md` の該当項目を参照）。
+
+2. **スキーマを適用する。**
+
+   ```bash
+   npx wrangler d1 migrations apply agent-failures --remote
+   ```
+
+   完了の判定: `npx wrangler d1 migrations list agent-failures --remote` で
+   未適用が無いこと。
+
+3. **トークンを設定する。**
+
+   ```bash
+   npx wrangler secret put MCP_AUTH_TOKEN
+   ```
+
+   値は任意の乱数（`openssl rand -base64 48` など）。Supabase とは無関係に自分で決める。
+
+4. **デプロイする。** main へ push すれば GitHub Actions が実行し、
+   デプロイ後に `/health` を叩いて `ok` を確認するところまで行う。
+   手で行う場合は `npm run deploy`。
+
+   完了の判定: `/health` が `{"status":"ok"}` を返すこと。
+   `misconfigured` なら binding かトークンが届いていない。
+
+5. **疎通確認とクライアント接続**は、本文の手順 4・5 がそのまま使える
+   （MCP の境界は移行で変えていない）。
+
+以降は当時の記録である。
+
+---
+
 本書は、リポジトリを取得した状態から MCP サーバーを稼働させるまでの作業手順を示す。
 所要時間の目安は 30 分程度である。
 
@@ -21,8 +74,8 @@
 | --- | --- | --- |
 | 手順 0 | 前提環境の確認 | — |
 | 手順 1 | 自動レビューの有効化 | 手順 0 |
-| 手順 2 | Supabase の準備 | 手順 0 |
-| 手順 3 | Cloudflare へのデプロイとシークレット設定 | 手順 2 |
+| 手順 2 | Supabase の準備（**現在は不要**。D1 へ移行済み） | 手順 0 |
+| 手順 3 | Cloudflare へのデプロイとシークレット設定（`SUPABASE_*` は不要） | 手順 2 |
 | 手順 4 | 疎通確認 | 手順 3 |
 | 手順 5 | MCP クライアントの接続 | 手順 4 |
 | 手順 6 | 自動デプロイの設定（任意） | 手順 3 |
@@ -519,21 +572,28 @@ Worker から Supabase への接続で問題が生じている。次の順に確
 
 ### しばらく使わずにいたら接続できなくなった
 
-Supabase の無料プランは、7 日間データベースへのアクセスがないと
+Supabase の無料プランは、**7 日以上にわたり「十分な活動量」が無いと**
 プロジェクトを自動停止する。ダッシュボードから復旧できる。
 
-これを避けるため、Cron Trigger による定期アクセスを設定してある
-（`wrangler.jsonc` の `triggers.crons`）。停止が繰り返される場合は、
-まず keep-alive が実際に動いていたかを確認する。
+**keep-alive を設定してあるが、これでは停止を回避できない。**
+2026-10-29 と 2026-11-11 に停止している。**止まったら復旧する**という前提で読むこと。
+
+復旧後は、まず最後に書き込めた時刻を見る。
 
 ```sql
 -- Supabase の SQL Editor で実行する
 select max(ran_at) from public.keepalive_log;
 ```
 
-この値が 4 日以上前であれば Cron が動いていない。Cloudflare ダッシュボードの
-Workers → 当該 Worker → Settings → Trigger Events で Cron が登録されているか、
-Logs に `scheduled` の実行が現れているかを確認する。
+この値が 4 日以上前であれば、停止とは別に **Cron 自体が動いていない**。
+Cloudflare ダッシュボードの Workers → 当該 Worker → Settings → Trigger Events で
+Cron が登録されているか、Logs に `scheduled` の実行が現れているかを確認する。
+
+**復旧は point-in-time recovery を伴う。** 復旧後はデータの件数を実際に数えて
+欠落が無いことを確認する。
+
+なお**プロジェクトが停止していても Supabase のログは読める。** 停止時刻や
+keep-alive の発火は停止中でも確認できる（`CLAUDE.md` の該当項を参照）。
 
 ### 自動レビューが止まらない
 

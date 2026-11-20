@@ -8,10 +8,19 @@ AgentFailures — AI エージェントが失敗談を蓄積・参照するた�
 
 ## 構成
 
-- ストア: Supabase (PostgreSQL)
+- ストア: **Cloudflare D1 (SQLite)**。binding 名は `DB`
 - MCP サーバー: TypeScript / Cloudflare Workers / Streamable HTTP
 - SDK: `@modelcontextprotocol/sdk`
-- デプロイ: wrangler
+- デプロイ: main への push で GitHub Actions が自動実行する（`/health` の確認まで行う）
+
+**2026-11-20 に Supabase から D1 へ移行した。** 経緯は
+[`docs/d1-migration-plan.md`](docs/d1-migration-plan.md)。
+
+- **コネクタ `AgentFailures_DB` は移行前の Supabase であり、正本ではない。**
+  退避先として 30 日は残すが、ここを読んでも現在のデータは分からない。
+  本番のデータは Cloudflare コネクタの `d1_database_query` で `agent-failures` を引く
+- `src/schema.ts` の domain に `supabase` が残っているのは正しい。
+  あれは**失敗談の分類値**であり、ストアの保存先とは無関係である
 
 ## コマンド
 
@@ -78,20 +87,6 @@ Cloudflare が返すのは 1101 のエラーページのみで、原因を示す
 ログにも応答にも一切残らない。捕捉して `console.error` へ出せば
 `wrangler tail` で内容を確認できる。
 
-### 生成列から呼ぶ関数は immutable でなければならない
-
-`concat_ws` と `array_to_string` は型出力関数を経由する都合で PostgreSQL 上
-`stable` 扱いであり、生成列の式に直接書くと `CREATE TABLE` が失敗する。
-`public.failures_search_text(...)` という `immutable` 宣言のラッパー関数を挟んで
-回避している。この宣言を外すとマイグレーションが通らなくなる。
-
-### PostgREST の ilike はパターン文字を解釈する
-
-`store.ts` の `escapeLikePattern` で `\` `%` `_` をエスケープしている。
-加えて PostgREST は `ilike` の値に含まれる `*` を `%` として扱うため、
-これはエスケープではなく空白へ置換している（`*` を打ち消す手段が無いため）。
-ユーザー入力をそのまま `ilike` に渡さないこと。
-
 ### Cron の曜日は 1 始まりで、1 が日曜である
 
 `wrangler.jsonc` の `0 3 * * 1,4` は**日曜と水曜**であり、月曜と木曜ではない。
@@ -109,6 +104,57 @@ Cloudflare の cron パーサ（`cloudflare/saffron`）は曜日を 1 始まり�
 なお同リポジトリの `saffron/src/lib.rs` にある `byte_to_weekday` は
 `0 => Sun` と書かれているが、これはパース後に -1 された内部表現であり、
 入力の番号付けではない。ここを入力側と取り違えて誤った結論を出した。
+
+### wrangler.jsonc の `migrations_dir` は `d1_databases[]` の中に書く
+
+トップレベルに書くと**警告 1 行だけで無視される。**
+
+```
+- Unexpected fields found in top-level field: "migrations_dir"
+✘ No migrations present at /home/user/AgentFailures/migrations.
+```
+
+同梱の `node_modules/wrangler/config-schema.json` では、`migrations_dir` は
+`d1_databases` の **items のプロパティ**にしか定義が無い（`RawConfig` /
+`RawEnvironment` / `PreviewsConfig` の 3 箇所とも同じ）。トップレベルの定義は存在しない。
+2026-11-18 に実際にトップレベルへ書いて踏んだ。**設定した側の表示は警告だけで、
+既定の `./migrations` を見に行くため、マイグレーションが「無い」ことになる。**
+
+`wrangler.jsonc` を変えたら、**読む側の道具を実際に走らせて確かめること。**
+ネットワークが要らない確認手段がある。
+
+```bash
+node_modules/.bin/wrangler d1 migrations list agent-failures --local
+```
+
+意図した `.sql` が一覧に出れば効いている。出なければ置き場所を疑う。
+
+### コネクタで DDL を流したら、d1_migrations にも記録する
+
+D1 のスキーマをコネクタの `d1_database_query` で適用すると、**wrangler 側の
+適用台帳には何も残らない。** そのまま `wrangler d1 migrations apply --remote` を
+流すと同じマイグレーションを再実行し、`table failures already exists` で落ちる。
+
+台帳は wrangler が自分で作るテーブルである。
+
+```sql
+CREATE TABLE "d1_migrations"(
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT UNIQUE,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+)
+```
+
+`INSERT INTO d1_migrations (name) VALUES ('<ファイル名>.sql')` で適用済みにできる
+（`applied_at` は既定値に任せる）。2026-11-18 に `0001_create_failures.sql` を
+この形で記録した。**以後はスキーマ変更に `wrangler d1 migrations apply` を使う。**
+
+## Supabase を使っていた時期（2026-09〜2026-11）の落とし穴
+
+**以下は現在のコードには当てはまらない。** 2026-11-20 に D1 (SQLite) へ移行したため、
+PostgreSQL / PostgREST 固有のものは該当しなくなった。
+**誤りではなく、このリポジトリが実際に踏んだ記録であるため残す。**
+現在の罠と混ざらないよう、時期を明記してここへ分けてある。
 
 ### 停止中でも Supabase のログは読める
 
@@ -130,6 +176,20 @@ Cloudflare の error code 1016 になる。**この状態でも `query_logs`（�
 復旧は point-in-time recovery を伴う（`selected new timeline ID` が出る）。
 復旧後はデータの件数を実際に数えて欠落が無いことを確認すること。
 
+### 生成列から呼ぶ関数は immutable でなければならない
+
+`concat_ws` と `array_to_string` は型出力関数を経由する都合で PostgreSQL 上
+`stable` 扱いであり、生成列の式に直接書くと `CREATE TABLE` が失敗する。
+`public.failures_search_text(...)` という `immutable` 宣言のラッパー関数を挟んで
+回避している。この宣言を外すとマイグレーションが通らなくなる。
+
+### PostgREST の ilike はパターン文字を解釈する
+
+`store.ts` の `escapeLikePattern` で `\` `%` `_` をエスケープしている。
+加えて PostgREST は `ilike` の値に含まれる `*` を `%` として扱うため、
+これはエスケープではなく空白へ置換している（`*` を打ち消す手段が無いため）。
+ユーザー入力をそのまま `ilike` に渡さないこと。
+
 ### 日本語の全文検索に tsvector は使えない
 
 PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simple` 設定では
@@ -139,8 +199,9 @@ PostgreSQL 標準の `tsvector` は日本語を分かち書きできず、`simpl
 ## 変更時の確認
 
 - `npm run typecheck` を通す
-- スキーマを変えたら、マイグレーションを実 PostgreSQL に適用して確認する
-  （適用済みファイルの編集ではなく、新しいマイグレーションを足す）
+- スキーマを変えたら、`d1/migrations/` に**新しい**マイグレーションを足し、
+  `wrangler d1 migrations apply` で適用して確認する（適用済みファイルは編集しない）。
+  一覧に出ることを `wrangler d1 migrations list agent-failures --local` で先に確かめる
 - MCP の挙動を変えたら、README の疎通確認 curl を実際に流す
 
 ## 自動レビュー

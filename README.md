@@ -5,7 +5,8 @@ AI エージェント群が「失敗談」を蓄積・参照するためのナ�
 
 エージェントはタスクの実行計画を立てる前に `search_failures` を呼び出して
 同種の失敗が記録されていないかを確認し、失敗が発生した場合は `record_failure`
-で記録する。人間は Supabase ダッシュボードから内容を閲覧する。
+で記録する。人間が中身を見る場合は、Cloudflare の D1 コンソール（または
+`wrangler d1 execute`）から `failures` を引く。
 
 初めてセットアップする場合は、実行順に沿った [`docs/setup-guide.md`](docs/setup-guide.md) を参照すること。
 本書は各項目のリファレンスであり、作業手順は同ファイルにまとめている。
@@ -16,10 +17,14 @@ AI エージェント群が「失敗談」を蓄積・参照するためのナ�
 
 | 区分 | 採用技術 |
 | --- | --- |
-| ストア | Supabase (PostgreSQL) |
+| ストア | Cloudflare D1 (SQLite)。binding 名 `DB`、データベース名 `agent-failures` |
 | MCP サーバー | TypeScript / Cloudflare Workers / Streamable HTTP |
 | SDK | `@modelcontextprotocol/sdk` |
-| デプロイ | wrangler |
+| デプロイ | `main` への push で GitHub Actions が自動実行（手動は wrangler） |
+
+**2026-11-20 に Supabase (PostgreSQL) から D1 へ移行した。** 動機は無料プランの
+自動停止であり、経緯と対応関係は
+[`docs/d1-migration-plan.md`](docs/d1-migration-plan.md) にある。
 
 ```
 src/
@@ -28,10 +33,12 @@ src/
 ├── transport.ts  Workers 用のステートレス Streamable HTTP トランスポート
 ├── mcp.ts        MCP サーバー定義とツール登録
 ├── schema.ts     zod による入力スキーマ
-├── store.ts      Supabase アクセス
+├── store.ts      D1 アクセス
 ├── format.ts     検索結果の整形
-└── env.ts        シークレットの型と存在検査
-supabase/migrations/
+└── env.ts        binding とシークレットの型・存在検査
+d1/migrations/
+└── 0001_create_failures.sql    failures / 索引 2 本 / keepalive_log
+supabase/migrations/            移行前のもの。履歴として残している
 ├── 20260908000001_create_failures.sql
 └── 20260927000001_create_keepalive_log.sql
 ```
@@ -81,39 +88,51 @@ supabase/migrations/
 npm install
 ```
 
-### 2. Supabase プロジェクトの準備
+### 2. D1 データベースの準備
 
-Supabase でプロジェクトを作成したうえで、
-`supabase/migrations/20260908000001_create_failures.sql` を適用する。
-
-Supabase CLI を利用する場合:
+データベースを作成し、`wrangler.jsonc` の `database_id` を書き換えたうえで
+マイグレーションを適用する。
 
 ```bash
-supabase link --project-ref <project-ref>
-supabase db push
+npx wrangler d1 create agent-failures
+# 出力された database_id を wrangler.jsonc の d1_databases[0] へ書く
+npx wrangler d1 migrations apply agent-failures --remote
 ```
 
-CLI を用いない場合は、上記 SQL の内容を Supabase ダッシュボードの
-SQL Editor に貼り付けて実行する。
+`database_id` は識別子であり秘密ではない。**コミットしてよい。**
 
-このマイグレーションは以下を行う。
+マイグレーション（`d1/migrations/0001_create_failures.sql`）は以下を行う。
 
-- `pg_trgm` 拡張の有効化
-- `failures` テーブルおよび全文検索用の生成列 `search_text` の作成
+- `failures` テーブルと、検索対象を連結した生成列 `search_text`（`STORED`）の作成
 - 必須項目に対する `NOT NULL` および空文字を拒否する `CHECK` 制約の付与
-- `created_at` 降順索引、`domain` 索引、`environment` / `search_text` の
-  trigram 索引、`tags` の GIN 索引の作成
-- RLS の有効化。ポリシーを一切定義しないことで `anon` / `authenticated` からの
-  到達を遮断し、`service_role` を用いる MCP サーバーのみが読み書きできる状態にする
+- `created_at` 降順索引と `domain` 索引の作成。`environment` と `search_text` は
+  部分一致のため索引が効かず、全表走査になる（134 行での実測は 1 検索あたり
+  最大 263 行読みであり、無料枠に対して桁が余る）
+- `keepalive_log` の作成
+
+**RLS に相当する仕掛けは置かない。** D1 へは Worker の binding からのみ到達でき、
+`anon` キーに相当するものが存在しないためである。認証は MCP サーバー側の
+固定トークン照合のみで行う。
+
+適用されたかどうかは一覧で確かめられる（ネットワークを要しない）。
+
+```bash
+npx wrangler d1 migrations list agent-failures --local
+```
+
+> **注意**: `migrations_dir` は `wrangler.jsonc` の `d1_databases[]` の**中**に
+> 書く。トップレベルに書くと警告 1 行だけで無視され、既定の `./migrations` を
+> 見に行くため「マイグレーションが無い」ことになる。
 
 ### 3. シークレットの設定
 
-`.env.example` に必要な環境変数を記載している。値は以下から取得する。
+シークレットは `MCP_AUTH_TOKEN` の 1 つだけである。ストアへの接続情報は
+秘密ではなく、`wrangler.jsonc` の `d1_databases`（binding 名 `DB`）で宣言している。
+
+`.env.example` に必要な環境変数を記載している。
 
 | 変数 | 取得元 |
 | --- | --- |
-| `SUPABASE_URL` | Supabase ダッシュボード → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | 同上。RLS をバイパスするため厳重に扱う |
 | `MCP_AUTH_TOKEN` | 任意の乱数。`openssl rand -base64 48` などで生成する |
 
 ローカル開発では `.dev.vars` に配置する。
@@ -123,11 +142,15 @@ cp .env.example .dev.vars
 # .dev.vars を編集して値を設定する
 ```
 
+ファイルを作らずに渡すこともできる（秘密を書き出さずに済む）。
+
+```bash
+npx wrangler dev --var MCP_AUTH_TOKEN:<任意の値>
+```
+
 本番環境では wrangler のシークレットとして登録する。
 
 ```bash
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put MCP_AUTH_TOKEN
 ```
 
@@ -148,6 +171,15 @@ export MCP_AUTH_TOKEN=<.dev.vars に設定した値>
 ```
 
 ### 疎通確認
+
+> **Windows PowerShell 5.1 では、以下の `curl` をそのまま実行できない。**
+> `curl` が `Invoke-WebRequest` の別名であり、引数体系が違う。`-s` は
+> `-SessionVariable` の前方一致として解釈され、URL をその値として飲み込むため、
+> `次のパラメーターに値を指定してください: Uri:` で止まる。**実際に踏んだ。**
+> `curl.exe` を明示するか、`Invoke-RestMethod <URL>` を用いること。
+> 日本語を含む本文を送る場合は、`-Body` に文字列ではなく
+> `[System.Text.Encoding]::UTF8.GetBytes()` のバイト列を渡す
+> （文字列のままでは保存された値が文字化けし、**応答は成功として返る**）。
 
 ```bash
 # 1. ヘルスチェック（認証不要）
@@ -217,10 +249,11 @@ curl -sS "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 `wrangler dev` を実行している端末に keep-alive の結果が出力される。
 成功時は `keepalive_log へ追記しました` と出る。
 
-追記されたかどうかは Supabase 側からも確認できる。
+追記されたかどうかは D1 側からも確認できる。
 
-```sql
-select max(ran_at) from public.keepalive_log;
+```bash
+npx wrangler d1 execute agent-failures --remote \
+  --command "select max(ran_at) from keepalive_log"
 ```
 
 ## デプロイ
@@ -310,9 +343,9 @@ claude mcp add --transport http agent-failures \
 [`docs/claude-md-snippet.md`](docs/claude-md-snippet.md) に用意している。
 
 `domain` と `tags` の使い分けは [`docs/taxonomy.md`](docs/taxonomy.md) に定めている。
-`domain` には技術（`nextjs` / `cloudflare-workers` など）を、`tags` には失敗の性質や
-話題を入れる。語彙の正本は `src/schema.ts` の `KNOWN_DOMAINS` にあり、
-ツールの説明文を通じて記録するエージェントへ伝わるため、
+`domain` には技術（`claude-code` / `nextjs` など）を、`tags` には失敗の性質や
+話題を入れる。**`domain` の値に固定の一覧は持たない**（30 種類以上あり、手で書いた
+一覧は追随できなかった）。規約はツールの説明文を通じて記録するエージェントへ伝わるため、
 クライアント側の設定だけに依存しない。
 
 ### カスタム指示に記載する（デスクトップ / スマートフォン）
@@ -335,27 +368,41 @@ claude mcp add --transport http agent-failures \
 
 ## 運用上の注意
 
-### Supabase の自動停止
+### 自動停止と keep-alive
 
-Supabase の無料プランは、7 日間データベースへのアクセスが無いとプロジェクトが
-自動的に停止する。停止した場合、ダッシュボードから手動で復旧する必要がある。
+**D1 に自動停止は無い。** 公式ドキュメントに該当する記述が無く、課金は使った分
+のみである（scale-to-zero）。これが Supabase から移行した動機そのものである。
 
-これを回避するため、Cron Trigger（`wrangler.jsonc` の `triggers.crons`）で
-毎週日曜・水曜の 03:00 UTC に `keepalive_log` へ 1 行追記している。アクセス間隔は
-最大 4 日となり、自動停止の閾値を下回る。
+移行前の Supabase 無料プランは、**7 日以上にわたり「十分な活動量」
+（sufficient activity）が無い**とプロジェクトを自動停止した。**判定基準は活動の
+「量」であり、アクセスの間隔ではない。** これは Supabase から届いた通知の文面
+（have not seen sufficient activity for more than 7 days）による。
+そのため keep-alive を週 2 回入れても止まり、**実測で 4 回停止した。**
+
+| 停止日 | 直前の状況 |
+| --- | --- |
+| 2026-09-27 | keep-alive が読み取りのみで、Cron が動いたかを確かめられなかった |
+| 2026-10-13 | — |
+| 2026-10-29 | 最終書き込みの 26 時間 36 分後 |
+| 2026-11-11 | 最後の keep-alive（11-08 03:00）の 2 日 21 時間後。**次の keep-alive の 2 時間半前** |
+
+間隔が一定でないことからも、間隔ではなく量で判定していたと読める。
+**間隔を詰めることは対策にならなかった。**
+
+Cron Trigger（`wrangler.jsonc` の `triggers.crons`）で毎週日曜・水曜の 03:00 UTC に
+`keepalive_log` へ 1 行追記する処理は、**移行後も 30 日は残す。** 目的は 2 つで、
+(1)「D1 は停止しない」を文書だけでなく観測で裏づけること、(2) `select max(ran_at)`
+で「最後に書き込めたのはいつか」が分かること。観測が済んだら、Cron・
+`keepalive_log`・`ping()` をまとめて落とす。
 
 設定値は `0 3 * * 1,4` である。**Cloudflare の cron は曜日を 1 始まりで数え、
 1 が日曜である**ため、この式は月曜・木曜ではなく日曜・水曜を指す。
 詳細は [`wrangler.jsonc`](wrangler.jsonc) の注釈を参照。
 
-**読み取りではなく書き込みである理由**は 2 つある。読み取りがアクティビティとして
-数えられない可能性を排除できること、そして「最後に keep-alive が成功したのはいつか」
-が DB を見れば分かることである。後者は 2026-09-27 の停止時に最も困った点で、
-Cron が動いたかどうかを確かめる手段が無かった。
-
-```sql
--- 最後に keep-alive が成功した時刻
-select max(ran_at) from public.keepalive_log;
+```bash
+# 最後に keep-alive が成功した時刻
+npx wrangler d1 execute agent-failures --remote \
+  --command "select max(ran_at) from keepalive_log"
 ```
 
 この値が 4 日以上前であれば Cron が動いていない。
@@ -369,9 +416,17 @@ select max(ran_at) from public.keepalive_log;
 
 ### 検索の特性
 
-`query` は `pg_trgm` による部分一致で実装している。日本語の文章に対しても
-語の切れ目に依存せず一致するが、表記ゆれ（全角・半角、送り仮名など）は
-吸収しない。安定した検索を行うには `tags` を活用すること。
+`query` は `search_text`（全項目を連結した生成列）に対する `LIKE '%...%'` の
+部分一致で実装している。日本語の文章に対しても語の切れ目に依存せず一致するが、
+制約が 2 つある。
+
+- **表記ゆれ（全角・半角、送り仮名など）は吸収しない。** 安定した検索を行うには
+  `tags` を活用すること
+- **渡した文字列が全体で 1 つの部分列として扱われる。** そのため複数語を
+  空白で区切って渡すと、その並びがそのまま含まれる記録しか一致しない
+  （実測では 0 件になる）。語を分割して AND で評価する改修は
+  [`docs/mcp-optimization-plan.md`](docs/mcp-optimization-plan.md) の Phase 1 にある。
+  **現状は 1 語ずつ渡すこと**
 
 ## 自動レビュー
 

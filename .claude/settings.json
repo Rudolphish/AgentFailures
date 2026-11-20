@@ -4,6 +4,10 @@
     "deny": [
       "Bash(*wrangler secret*)",
       "Bash(*wrangler delete*)",
+      "Bash(*wrangler d1 delete*)",
+      "Bash(*wrangler d1 execute*DROP*)",
+      "Bash(*wrangler d1 execute*DELETE FROM*)",
+      "Bash(*wrangler d1 time-travel restore*)",
       "Bash(*supabase db reset*)",
       "Bash(*supabase projects delete*)",
       "Bash(*SUPABASE_SERVICE_ROLE_KEY=*)",

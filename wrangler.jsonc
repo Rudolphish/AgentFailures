@@ -7,8 +7,18 @@
   "observability": {
     "enabled": true
   },
-  // Supabase の無料プランは 7 日間 DB アクセスが無いとプロジェクトが自動停止するため、
-  // 定期的に keepalive_log へ追記して停止を回避する。
+  // Cron から keepalive_log へ 1 行追記する。
+  //
+  // **D1 に自動停止は無い。** これは Supabase 時代の名残である。当時は自動停止の
+  // 回避を狙って入れたが、判定基準が「7 日以上にわたり十分な活動量が無いこと」
+  // （＝量であって間隔ではない）だったため回避できず、2026-10-29 と 2026-11-11 に
+  // 停止した。これが D1 へ移った動機である。
+  //
+  // 移行後も 30 日は残す。「D1 は停止しない」ことを文書で確認できていないため、
+  // 観測で裏を取る（docs/d1-migration-plan.md の §6）。あわせて
+  // select max(ran_at) で最後に書き込めた時刻が分かり、障害時の切り分けに使える。
+  // 30 日の観測後に削除する場合は、Cron Trigger・keepalive_log・ping()・
+  // docs/review-checklist.md の該当項目をまとめて落とすこと。
   //
   // 「1,4」は日曜と水曜である。月曜と木曜ではない。
   // Cloudflare の cron は曜日を 1 始まりで数え、1 が日曜である
@@ -17,10 +27,25 @@
   // 根拠: cloudflare/saffron の saffron/src/parse.rs の dow_expr のテスト。
   // 実際の発火日はダッシュボードの Settings → Trigger Events にも表示される。
   //
-  // 発火間隔は 日→水 が 3 日、水→日 が 4 日で、最大 4 日となり閾値を下回る。
-  // 曜日を変更する場合、この番号付けを踏まえて間隔が 7 日未満に収まることを
-  // 確認すること。
+  // 発火間隔は 日→水 が 3 日、水→日 が 4 日である。
+  // **この間隔に意味は無い。** 回避すべき自動停止がもう無いため、観測の頻度として
+  // 週 2 回を続けているにすぎない。曜日を変更する場合に確認すべきは間隔ではなく、
+  // 上記の番号付けを踏まえて意図した曜日になっているか
+  // （ダッシュボードの Trigger Events の文章表示）である。
   "triggers": {
     "crons": ["0 3 * * 1,4"]
-  }
+  },
+  // 失敗談ストア本体。Supabase から移行した（docs/d1-migration-plan.md）。
+  // database_id は識別子であり、秘密情報ではない。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-failures",
+      "database_id": "850a8116-510c-44f2-b515-bb6fa5597f9e",
+      // migrations_dir は d1_databases の各要素の中にしか無い設定である。
+      // トップレベルに書くと "Unexpected fields found in top-level field" の
+      // 警告 1 行だけが出て無視され、既定の ./migrations を見に行く。
+      "migrations_dir": "d1/migrations"
+    }
+  ]
 }
