@@ -45,9 +45,9 @@ export function createMcpServer(env: Env): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (input) => {
-      const records = await searchFailures(store, input);
+      const result = await searchFailures(store, input);
       return {
-        content: [{ type: 'text', text: formatSearchResult(records, input.detail ?? 'summary') }],
+        content: [{ type: 'text', text: formatSearchResult(result, input.detail ?? 'summary') }],
       };
     },
   );

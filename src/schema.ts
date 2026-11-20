@@ -50,7 +50,11 @@ export const searchFailuresInputShape = {
   query: requiredText(500)
     .optional()
     .describe(
-      'キーワードによる全文検索。domain / environment / attempted / observed / cause / workaround / tags を連結した文字列に対し、大文字小文字を無視した部分一致で判定する。',
+      'キーワードによる全文検索。domain / environment / attempted / observed / cause / workaround / tags を連結した文字列を対象とする。' +
+        '**空白（半角・全角とも）で語に分割し、すべての語を含む記録を返す（AND）。** ' +
+        '語の並び順と隣接は問わないため、「cron 曜日」と「曜日 cron」は同じ結果になる。' +
+        '語を増やすほど絞り込まれ 0 件へ寄るため、0 件のときは語を減らすこと。語数の上限は 8。' +
+        '各語は大文字小文字を無視した部分一致で判定する。',
     ),
   limit: z
     .number()
