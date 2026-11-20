@@ -117,6 +117,8 @@ const PRIORITY_FILE_PATTERNS = [
   /(^|\/)src\/index\.ts$/,
   /(^|\/)src\/store\.ts$/,
   /(^|\/)src\/schema\.ts$/,
+  /(^|\/)d1\/migrations\//,
+  // 移行前の Supabase 時代のマイグレーション。履歴として残っているため維持する。
   /(^|\/)supabase\/migrations\//,
   /(^|\/)package\.json$/,
 ];
