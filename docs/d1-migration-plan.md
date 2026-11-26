@@ -627,7 +627,7 @@ CREATE TABLE "d1_migrations"(
 
 | 段階 | やること | 完了の判定 |
 | --- | --- | --- |
-| 8 | `search_log` のマイグレーションを適用 | 検索 1 回で行が 1 増える（**件数の増分で確認する**） |
+| 8 | `search_log` のマイグレーションを適用 | **実施済み（2026-11-26）。** 検索 3 回で `source='search'` が 1→4、Cron 1 回で `source='writable-check'` が 1→2。**件数の増分で確認した。** 本番はコネクタ経由で適用し `d1_migrations` にも記録 |
 | 9 | AND 分割・一致総数・一致語数の並びを入れる | **実施済み（2026-11-20）。** AND 分割、OR への落とし込み、一致総数（`batch()` の `count(*)`）、関連順（一致語数 → 出現回数 → `created_at`）。判定は [`mcp-optimization-plan.md`](mcp-optimization-plan.md) §6 の 7 項目 |
 | 10 | 文書を直す（§9） | — |
 

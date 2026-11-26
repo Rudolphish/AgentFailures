@@ -282,6 +282,50 @@ async function runSearch(
 }
 
 /**
+ * 検索を 1 件記録する。**失敗しても例外を投げない。**
+ *
+ * 計測のために検索本体を落とさないためである。ただし**黙って落ちるのは避ける。**
+ * 失敗は `console.error` へ出し、あわせて `ping()` が週 2 回
+ * `source='writable-check'` の行を入れるため、`search_log` に検索の行が
+ * 無いときも「誰も検索していない」と「記録が壊れている」を DB 側だけで
+ * 区別できる（マイグレーション 0002 の注記を参照）。
+ *
+ * **記録の本文は入れない。** 受け取った入力と件数だけを持つ。
+ */
+async function logSearch(
+  store: Store,
+  input: SearchFailuresInput,
+  result: { combine: 'and' | 'or' | 'none'; matchedCount: number; returnedCount: number },
+  limit: number,
+): Promise<void> {
+  try {
+    await store
+      .prepare(
+        `INSERT INTO search_log
+           (id, ran_at, source, query, domain, environment,
+            limit_value, combine, matched_count, returned_count)
+         VALUES (?1, ?2, 'search', ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        new Date().toISOString(),
+        input.query ?? null,
+        input.domain ?? null,
+        input.environment ?? null,
+        limit,
+        result.combine,
+        result.matchedCount,
+        result.returnedCount,
+      )
+      .run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // 投げない。検索は成功しているため、呼び出し側へ返す結果は変えない。
+    console.error(`search_log への記録に失敗しました（検索自体は成功）: ${message}`);
+  }
+}
+
+/**
  * 失敗談を検索する。返却件数は必ず上限以下になる。
  *
  * `query` は**空白で語へ分割し、語ごとの `AND`** で判定する。連結文字列への
@@ -322,13 +366,19 @@ export async function searchFailures(
   }
 
   // 上限超過を返さないことは要件であるため、SQL の LIMIT に加えてここでも切り詰める。
-  return {
-    records: rows.slice(0, limit).map(toRecord),
-    terms,
-    droppedTerms: dropped,
-    matchedCount,
-    combine,
-  };
+  const records = rows.slice(0, limit).map(toRecord);
+
+  // **記録は searchFailures の中で行う。** 呼び出し側へ任せると、経路が増えた
+  // ときに記録を忘れても何も起きず、計測だけが静かに欠ける。
+  // logSearch は失敗しても投げない。
+  await logSearch(
+    store,
+    input,
+    { combine, matchedCount, returnedCount: records.length },
+    limit,
+  );
+
+  return { records, terms, droppedTerms: dropped, matchedCount, combine };
 }
 
 /**
@@ -387,7 +437,12 @@ export async function recordFailure(
  * 記録まで到達したかどうかを呼び出し側へ返す。疎通はできたが記録できなかった
  * 場合を「成功」として片付けると、可観測性を足した意味が無くなるためである。
  */
-export type PingResult = { recorded: true } | { recorded: false; reason: string };
+export type PingResult = {
+  /** `keepalive_log` へ追記できたか。 */
+  keepalive: true | { recorded: false; reason: string };
+  /** `search_log` へ追記できたか。計測の機構が生きていることの証明になる。 */
+  searchLog: true | { recorded: false; reason: string };
+};
 
 /**
  * `keepalive_log` へ 1 行追記する。
@@ -404,12 +459,12 @@ export type PingResult = { recorded: true } | { recorded: false; reason: string 
  * 呼び出し側へ返し、ログへ残す。
  */
 export async function ping(store: Store): Promise<PingResult> {
+  const ranAt = new Date().toISOString();
+
+  let keepalive: PingResult['keepalive'];
   try {
-    await store
-      .prepare('INSERT INTO keepalive_log (ran_at) VALUES (?1)')
-      .bind(new Date().toISOString())
-      .run();
-    return { recorded: true };
+    await store.prepare('INSERT INTO keepalive_log (ran_at) VALUES (?1)').bind(ranAt).run();
+    keepalive = true;
   } catch (insertError) {
     const insertMessage = insertError instanceof Error ? insertError.message : String(insertError);
 
@@ -422,6 +477,24 @@ export async function ping(store: Store): Promise<PingResult> {
       );
     }
 
-    return { recorded: false, reason: insertMessage };
+    keepalive = { recorded: false, reason: insertMessage };
   }
+
+  // **search_log へ「書ける」ことを週 2 回証明する。** 検索の記録は失敗しても
+  // 検索を返す設計であるため、この行が無いと search_log が空のときに
+  // 「誰も検索していない」と「記録が壊れている」を区別できない。
+  // ここで失敗しても keep-alive 自体は成功として扱う（停止回避が目的のため）。
+  let searchLog: PingResult['searchLog'];
+  try {
+    await store
+      .prepare("INSERT INTO search_log (id, ran_at, source) VALUES (?1, ?2, 'writable-check')")
+      .bind(crypto.randomUUID(), ranAt)
+      .run();
+    searchLog = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    searchLog = { recorded: false, reason: message };
+  }
+
+  return { keepalive, searchLog };
 }
