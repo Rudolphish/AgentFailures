@@ -151,6 +151,11 @@ export default {
    * 観測で裏を取る、というのが理由である（移行計画 §6）。あわせて
    * `select max(ran_at)` で最後に書き込めた時刻が分かる。
    *
+   * **あわせて `search_log` へ `source='writable-check'` の行を入れる。**
+   * 検索の記録は失敗しても検索を返す設計であるため、この行が無いと
+   * `search_log` が空のときに「誰も検索していない」と「記録が壊れている」を
+   * 区別できない（マイグレーション 0002 の注記を参照）。
+   *
    * 追記まで到達できなかった場合は、疎通していても error として記録する。
    * keep-alive は失敗しても誰も困らないため、自ら声を上げなければ気づかれない。
    */
@@ -162,11 +167,21 @@ export default {
     ctx.waitUntil(
       ping(createStore(env)).then(
         (result) => {
-          if (result.recorded) {
+          if (result.keepalive === true) {
             console.log('keep-alive: keepalive_log へ追記しました。');
           } else {
             console.error(
-              `keep-alive: 疎通はしましたが keepalive_log へ追記できませんでした: ${result.reason}`,
+              `keep-alive: 疎通はしましたが keepalive_log へ追記できませんでした: ${result.keepalive.reason}`,
+            );
+          }
+
+          if (result.searchLog === true) {
+            console.log('keep-alive: search_log へ書き込み確認の行を入れました。');
+          } else {
+            // ここが落ちている間、search_log が空であることの意味が
+            // 「誰も検索していない」と区別できなくなる。
+            console.error(
+              `keep-alive: search_log へ書き込めませんでした（計測の生存確認が止まります）: ${result.searchLog.reason}`,
             );
           }
         },
